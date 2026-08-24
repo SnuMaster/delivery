@@ -1,119 +1,197 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#0b0d12" />
-  <meta name="description" content="여러 택배사의 운송장을 한 화면에서 관리하는 개인용 택배 대시보드" />
-  <title>택배허브 — 내 택배 한 화면에</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101828">
+  <meta name="description" content="운송장번호를 브라우저에 안전하게 모으고 각 택배사의 공식 배송조회로 연결하는 개인용 택배 대시보드">
+  <title>택배허브 — 내 운송장 한 화면에</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="shell">
-    <header class="topbar">
+  <div class="page-shell">
+    <header class="site-header">
       <a class="brand" href="./" aria-label="택배허브 홈">
-        <span class="brand-mark">📦</span>
-        <span><strong>택배허브</strong><small>Parcel Hub</small></span>
+        <span class="brand-mark" aria-hidden="true">▣</span>
+        <span><strong>택배허브</strong><small>PARCEL HUB</small></span>
       </a>
-      <div class="top-actions">
-        <button class="btn ghost" id="exportBtn" type="button">내보내기</button>
-        <button class="btn ghost" id="refreshAllBtn" type="button">↻ 전체 새로고침</button>
+      <div class="header-actions">
+        <button class="button button-quiet" id="importOpenButton" type="button">백업 가져오기</button>
+        <button class="button button-quiet" id="exportButton" type="button">백업 내보내기</button>
       </div>
     </header>
 
     <main>
-      <section class="hero">
-        <div class="hero-copy-wrap">
-          <p class="eyebrow">PARCEL DASHBOARD</p>
-          <h1>오는 택배를<br><span>한 화면에.</span></h1>
-          <p class="hero-copy">CJ·한진·롯데·로젠·우체국 등 운송장을 저장하고, 택배사별 조회 페이지로 바로 이동할 수 있습니다. 목록은 이 브라우저에만 저장됩니다.</p>
-          <div class="notice">
-            <b>전화번호 자동조회</b>
-            <span>택배사들이 전화번호 → 전체 운송장 목록 API를 공개하지 않아 현재는 구현할 수 없습니다. 가짜로 되는 척하지 않고, 운송장 기반 기능부터 제대로 만들었습니다.</span>
+      <section class="hero" aria-labelledby="pageTitle">
+        <div class="hero-copy">
+          <p class="eyebrow">PERSONAL PARCEL DASHBOARD</p>
+          <h1 id="pageTitle">내 운송장을<br><span>한 화면에.</span></h1>
+          <p class="hero-description">운송장번호를 모아 두고, 정확한 택배사를 선택한 다음 각사의 <strong>공식 배송조회</strong>로 바로 이동하세요. 이 앱은 배송 데이터를 흉내 내지 않습니다.</p>
+          <div class="truth-grid" aria-label="서비스 범위 안내">
+            <div><span class="truth-icon" aria-hidden="true">◎</span><p><strong>공식 정보 우선</strong><br>실제 배송 상태·이력은 택배사 공식 페이지에서 확인합니다.</p></div>
+            <div><span class="truth-icon" aria-hidden="true">⌁</span><p><strong>번호만으로 추정 안 함</strong><br>국내 숫자 운송장은 택배사별 형식이 겹쳐 직접 선택이 정확합니다.</p></div>
           </div>
         </div>
 
-        <div class="hero-card">
-          <form id="addForm" class="add-form">
+        <section class="add-card" aria-labelledby="addHeading">
+          <div class="section-label-row"><p class="eyebrow">ADD A PARCEL</p><span class="local-badge">이 브라우저에만 저장</span></div>
+          <h2 id="addHeading">새 운송장 등록</h2>
+          <form id="trackingForm" novalidate>
             <label for="trackingInput">운송장번호</label>
-            <div class="input-row">
-              <input id="trackingInput" autocomplete="off" inputmode="text" placeholder="예: 123456789012" />
-              <button class="btn primary" type="submit">추가</button>
+            <div class="input-action-row">
+              <input id="trackingInput" name="tracking" autocomplete="off" spellcheck="false" inputmode="text" placeholder="예: 680405450931" aria-describedby="trackingHint" required>
+              <button class="button button-primary" type="submit">추가</button>
             </div>
-            <div class="form-row">
-              <select id="carrierInput" aria-label="택배사">
-                <option value="">택배사 자동 추정</option>
-                <option value="cj">CJ대한통운</option>
-                <option value="hanjin">한진택배</option>
-                <option value="lotte">롯데택배</option>
-                <option value="logen">로젠택배</option>
-                <option value="post">우체국택배</option>
-                <option value="kyungdong">경동택배</option>
-                <option value="daesin">대신택배</option>
-                <option value="ems">EMS</option>
-              </select>
-              <input id="memoInput" autocomplete="off" placeholder="메모 (예: 일마존 립밤)" />
+            <p class="input-hint" id="trackingHint" aria-live="polite"></p>
+            <div class="field-grid">
+              <div>
+                <label for="carrierInput">택배사 <span class="optional">선택</span></label>
+                <select id="carrierInput" name="carrier">
+                  <option value="">택배사 직접 선택</option>
+                  <option value="cj">CJ대한통운</option>
+                  <option value="hanjin">한진택배</option>
+                  <option value="lotte">롯데택배</option>
+                  <option value="logen">로젠택배</option>
+                  <option value="post">우체국택배</option>
+                  <option value="ems">우체국 EMS·국제우편</option>
+                  <option value="kyungdong">경동택배</option>
+                  <option value="daesin">대신택배</option>
+                </select>
+              </div>
+              <div>
+                <label for="memoInput">메모 <span class="optional">선택</span></label>
+                <input id="memoInput" name="memo" autocomplete="off" maxlength="240" placeholder="예: 선물 / 주문처">
+              </div>
             </div>
           </form>
-          <div class="divider"><span>여러 개라면</span></div>
-          <button class="btn secondary full" id="bulkOpenBtn" type="button">문자/메일에서 운송장 여러 개 추출</button>
-          <p class="helper">운송장 형식만으로 택배사를 100% 확정할 수는 없어 애매하면 직접 선택하면 됩니다.</p>
+          <div class="or-divider"><span>여러 개라면</span></div>
+          <button class="button button-secondary button-wide" id="bulkOpenButton" type="button">문자·메일에서 운송장 후보 찾기</button>
+          <p class="helper-text">긴 숫자를 모두 택배로 저장하지 않아요. 후보를 보여드리면 확인하고 추가할 수 있습니다.</p>
+        </section>
+      </section>
+
+      <aside class="limitations" aria-labelledby="limitHeading">
+        <span class="limitations-icon" aria-hidden="true">i</span>
+        <div>
+          <h2 id="limitHeading">전화번호 하나로 모든 택배를 찾을 수는 없어요.</h2>
+          <p>일부 택배사는 로그인·본인확인·발송/수령 정보와 기간을 요구하는 자체 조회를 제공할 수 있지만, 휴대폰 번호만으로 모든 택배사를 공개적으로 통합 조회하는 기능은 없습니다. 그래서 이 앱은 가능한 범위를 투명하게 지킵니다.</p>
         </div>
-      </section>
+      </aside>
 
-      <section class="stats" aria-label="택배 요약">
-        <div class="stat"><span>전체</span><strong id="statAll">0</strong></div>
-        <div class="stat"><span>확인 필요</span><strong id="statUnknown">0</strong></div>
-        <div class="stat"><span>배송중 표시</span><strong id="statActive">0</strong></div>
-        <div class="stat"><span>완료 표시</span><strong id="statDone">0</strong></div>
-      </section>
+      <section class="dashboard" aria-labelledby="dashboardHeading">
+        <div class="dashboard-heading">
+          <div><p class="eyebrow">MY PARCELS</p><h2 id="dashboardHeading">내 택배 목록</h2></div>
+          <p class="storage-state" id="storageState">이 브라우저에만 저장됨</p>
+        </div>
 
-      <section class="list-section">
-        <div class="list-head">
-          <div class="filters" id="filters">
-            <button class="chip active" data-filter="all" type="button">전체</button>
-            <button class="chip" data-filter="active" type="button">배송중</button>
-            <button class="chip" data-filter="done" type="button">완료</button>
-            <button class="chip" data-filter="unknown" type="button">확인 필요</button>
+        <div class="stats" aria-label="택배 요약">
+          <div class="stat-card"><span>전체</span><strong id="statAll">0</strong></div>
+          <div class="stat-card warning"><span>택배사 선택</span><strong id="statNeedsCarrier">0</strong></div>
+          <div class="stat-card"><span>공식 조회 필요</span><strong id="statNeedsCheck">0</strong></div>
+          <div class="stat-card success"><span>받음 (내 표시)</span><strong id="statReceived">0</strong></div>
+        </div>
+
+        <div class="list-toolbar">
+          <div class="filter-group" id="filters" aria-label="택배 목록 필터">
+            <button class="filter active" type="button" data-filter="all" aria-pressed="true">전체</button>
+            <button class="filter" type="button" data-filter="needs-carrier" aria-pressed="false">택배사 선택</button>
+            <button class="filter" type="button" data-filter="needs-check" aria-pressed="false">공식 조회 필요</button>
+            <button class="filter" type="button" data-filter="received" aria-pressed="false">받음</button>
           </div>
-          <div class="last-sync" id="lastSync">브라우저 로컬 저장</div>
+          <p>“받음”은 직접 표시하는 관리 상태입니다.</p>
         </div>
-        <div class="parcel-list" id="parcelList"></div>
-        <div class="empty" id="emptyState">
-          <div class="empty-icon">📭</div>
-          <h2>등록된 택배가 없음</h2>
-          <p>위에서 운송장번호를 추가하면 여기서 한꺼번에 관리할 수 있음.</p>
+
+        <div class="parcel-list" id="parcelList" role="list"></div>
+        <div class="empty-state" id="emptyState">
+          <span aria-hidden="true">□</span>
+          <h3>아직 등록한 운송장이 없어요.</h3>
+          <p>운송장번호를 추가하면 여기에서 한꺼번에 관리할 수 있어요.</p>
         </div>
       </section>
     </main>
+
+    <footer class="site-footer">
+      <p>택배허브는 개인용 브라우저 앱입니다. 운송장번호와 메모는 이 브라우저 프로필에 저장되므로 공용 기기에서는 주의해 주세요.</p>
+    </footer>
   </div>
 
-  <dialog id="bulkDialog" class="modal">
-    <div class="modal-card">
-      <div class="modal-head">
-        <div><h2>여러 개 한꺼번에 추가</h2><p>배송 문자나 주문 메일을 통째로 붙여넣으세요.</p></div>
-        <button class="icon-btn" id="bulkCloseBtn" type="button" aria-label="닫기">✕</button>
+  <dialog class="modal" id="bulkDialog" aria-labelledby="bulkTitle">
+    <div class="modal-card modal-wide">
+      <div class="modal-header">
+        <div><p class="eyebrow">BULK ADD</p><h2 id="bulkTitle">문자·메일에서 후보 찾기</h2></div>
+        <button class="icon-button" id="bulkCloseButton" type="button" aria-label="일괄 추가 닫기">×</button>
       </div>
-      <textarea id="bulkText" rows="10" placeholder="예) CJ대한통운 680405450931&#10;한진택배 300000010634"></textarea>
-      <div class="bulk-preview" id="bulkPreview"></div>
+      <p class="modal-intro">배송 문자나 주문 메일을 붙여넣으세요. 택배사 이름 또는 운송장 관련 문구가 있는 번호를 우선 제안하고, 애매한 숫자는 확인이 필요하다고 표시합니다.</p>
+      <label for="bulkText">문자 또는 메일 내용</label>
+      <textarea id="bulkText" rows="8" placeholder="예) CJ대한통운 운송장 6804-0545-0931&#10;우체국 EMS EE123456789KR"></textarea>
+      <div class="bulk-summary" id="bulkSummary" aria-live="polite"></div>
+      <div class="bulk-preview" id="bulkPreview" role="status" aria-live="polite"></div>
       <div class="modal-actions">
-        <button class="btn ghost" id="bulkCancelBtn" type="button">취소</button>
-        <button class="btn primary" id="bulkAddBtn" type="button">추출해서 추가</button>
+        <button class="button button-quiet" id="bulkCancelButton" type="button">취소</button>
+        <button class="button button-primary" id="bulkAddButton" type="button" disabled>선택한 항목 추가</button>
       </div>
     </div>
   </dialog>
 
-  <dialog id="detailDialog" class="modal">
-    <div class="modal-card detail-card">
-      <div class="modal-head">
-        <div><p class="eyebrow" id="detailCarrier">택배사</p><h2 id="detailTitle">배송 상세</h2></div>
-        <button class="icon-btn" id="detailCloseBtn" type="button" aria-label="닫기">✕</button>
+  <dialog class="modal" id="importDialog" aria-labelledby="importTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div><p class="eyebrow">RESTORE BACKUP</p><h2 id="importTitle">백업 가져오기</h2></div>
+        <button class="icon-button" id="importCloseButton" type="button" aria-label="백업 가져오기 닫기">×</button>
       </div>
-      <div id="detailContent"></div>
+      <p class="modal-intro">택배허브에서 내보낸 JSON 파일을 선택하세요. 기존 항목은 바꾸지 않고, 새 운송장번호만 추가합니다.</p>
+      <label class="file-input" for="importFile"><span>JSON 백업 파일 선택</span><input id="importFile" type="file" accept="application/json,.json"></label>
+      <p class="import-summary" id="importSummary" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button class="button button-quiet" id="importCancelButton" type="button">취소</button>
+        <button class="button button-primary" id="importConfirmButton" type="button" disabled>새 항목 가져오기</button>
+      </div>
     </div>
+  </dialog>
+
+  <dialog class="modal" id="detailDialog" aria-labelledby="detailTitle">
+    <form class="modal-card detail-card" id="detailForm">
+      <div class="modal-header">
+        <div><p class="eyebrow">MANAGE PARCEL</p><h2 id="detailTitle">택배 관리</h2></div>
+        <button class="icon-button" id="detailCloseButton" type="button" aria-label="택배 관리 닫기">×</button>
+      </div>
+      <div class="detail-fields">
+        <div>
+          <label for="detailTracking">운송장번호</label>
+          <div class="copy-field"><input id="detailTracking" readonly><button class="button button-quiet compact" id="detailCopyButton" type="button">복사</button></div>
+        </div>
+        <div>
+          <label for="detailCarrier">택배사</label>
+          <select id="detailCarrier"></select>
+          <p class="origin-note" id="detailOrigin"></p>
+        </div>
+        <div>
+          <label for="detailStatus">내 관리 상태</label>
+          <select id="detailStatus">
+            <option value="needs-check">공식 조회 필요</option>
+            <option value="received">받음 (내 표시)</option>
+          </select>
+        </div>
+        <div>
+          <label for="detailMemo">메모</label>
+          <input id="detailMemo" maxlength="240" placeholder="예: 선물 / 주문처">
+        </div>
+      </div>
+      <div class="official-panel">
+        <strong>실제 배송 정보</strong>
+        <p id="detailLinkHint"></p>
+        <a class="button button-secondary" id="detailOfficialLink" target="_blank" rel="noopener noreferrer">공식 배송조회 열기 ↗</a>
+      </div>
+      <div class="modal-actions split">
+        <button class="button button-danger" id="detailDeleteButton" type="button">이 운송장 삭제</button>
+        <button class="button button-primary" type="submit">변경사항 저장</button>
+      </div>
+    </form>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="./app.js" defer></script>
+  <noscript><p class="noscript">택배허브를 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
+
