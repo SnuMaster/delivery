@@ -8,6 +8,7 @@ const appRoot = new URL('../', import.meta.url);
 test('mail picker keeps copy and paste as the immediate option', async () => {
   const html = await readFile(new URL('index.html', appRoot), 'utf8');
   const app = await readFile(new URL('app.js', appRoot), 'utf8');
+  const styles = await readFile(new URL('styles.css', appRoot), 'utf8');
 
   assert.match(html, /id="quickTextImportButton"/);
   assert.match(html, /Gmail 자동 가져오기는 준비 중이에요/);
@@ -16,6 +17,7 @@ test('mail picker keeps copy and paste as the immediate option', async () => {
   assert.doesNotMatch(html, /gmailSetupButton|naverSetupButton/);
   assert.match(app, /if \(state\.bulkMode !== 'paste'\) return;/);
   assert.match(app, /elements\.bulkPastePanel\.hidden = true;/);
+  assert.match(styles, /\[hidden\]\s*\{\s*display:\s*none !important;/);
 });
 
 test('keeps successful Gmail candidates when one matching message cannot be read', async () => {
