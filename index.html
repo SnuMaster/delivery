@@ -7,7 +7,7 @@
   <meta name="description" content="운송장번호를 브라우저에 안전하게 모으고 각 택배사의 공식 배송조회로 연결하는 개인용 택배 대시보드">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://esm.sh https://accounts.google.com; connect-src 'self' https://esm.sh https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://gmail.googleapis.com; frame-src https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self' https://www.ds3211.co.kr https://www.lotteglogis.com">
   <title>택배허브 — 내 운송장 한 화면에</title>
-  <link rel="stylesheet" href="styles.css?v=20260824-iphone-1">
+  <link rel="stylesheet" href="styles.css?v=20260824-iphone-2">
 </head>
 <body>
   <div class="page-shell">
@@ -310,7 +310,7 @@
         <ol>
           <li><strong>단축어</strong> 앱 → <strong>자동화</strong> → <strong>＋</strong> → <strong>메시지</strong>를 선택하고, <strong>메시지 내용에 “운송장” 포함</strong> 또는 택배 발신자 조건을 고르세요.</li>
           <li>실행 방식은 <strong>즉시 실행</strong>으로 바꾸세요. 처음 실행 때 iPhone이 네트워크 사용을 물으면 허용하면 됩니다.</li>
-          <li><strong>텍스트 일치</strong> 동작을 추가하고 입력에 <strong>단축어 입력</strong>을 넣으세요. 정규식은 아래를 사용합니다.<code>(?&lt;!\d)\d{8,16}(?!\d)|\b[A-Za-z]{2}\d{9}[A-Za-z]{2}\b</code></li>
+          <li><strong>텍스트 일치</strong> 동작을 추가하고 입력에 <strong>단축어 입력</strong>을 넣으세요. 정규식은 아래를 사용합니다.<code class="shortcut-regex">(?&lt;!\d)\d{8,16}(?!\d)|\b[A-Za-z]{2}\d{9}[A-Za-z]{2}\b</code></li>
           <li>일치 결과가 있을 때만 <strong>URL의 콘텐츠 가져오기</strong>를 추가합니다. 위 주소를 붙여넣고, 방법은 <strong>POST</strong>, 본문은 <strong>JSON</strong>으로 선택하세요.</li>
           <li>JSON 항목 <code>key</code>에는 위 연결 키를, <code>trackingNumbers</code>에는 방금 만든 <strong>텍스트 일치 결과</strong> 변수를 넣으세요. 문자 원문·발신자·전화번호 항목은 넣지 마세요.</li>
         </ol>
@@ -329,7 +329,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <noscript><p class="noscript">택배허브를 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
-  <script type="module" src="app.js?v=20260824-iphone-1"></script>
+  <script type="module" src="app.js?v=20260824-iphone-2"></script>
 </body>
 </html>
 

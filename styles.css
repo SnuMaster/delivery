@@ -277,6 +277,7 @@ input:focus, textarea:focus, select:focus { border-color: rgba(143, 126, 255, .8
 .shortcut-guide li::marker { color: #b9aaff; font-weight: 800; }
 .shortcut-guide code { display: block; margin-top: 5px; padding: 7px 8px; overflow-wrap: anywhere; border: 1px solid rgba(138, 120, 255, .22); border-radius: 8px; color: #d9d3ff; background: rgba(111, 93, 205, .1); font-family: var(--mono); font-size: 10px; line-height: 1.45; }
 .shortcut-guide li > code { display: inline; margin: 0 1px; padding: 1px 4px; overflow-wrap: normal; }
+.shortcut-guide code.shortcut-regex { display: block; margin-top: 5px; padding: 7px 8px; overflow-wrap: anywhere; }
 .shortcut-guide-note { margin: 13px 0 0; color: #a7b6ca; font-size: 11px; line-height: 1.58; }
 .shortcut-actions { align-items: center; }
 .shortcut-actions > span { flex: 1; }
@@ -321,6 +322,9 @@ input:focus, textarea:focus, select:focus { border-color: rgba(143, 126, 255, .8
   .modal-actions.split .button { width: 100%; }
   .account-actions { flex-direction: column; }
   .account-actions .button { width: 100%; }
+  .shortcut-actions { align-items: stretch; flex-direction: column; }
+  .shortcut-actions > span { display: none; }
+  .shortcut-actions .button { width: 100%; }
   .source-heading { gap: 10px; }
 }
 
