@@ -1006,12 +1006,6 @@ async function prepareGmailImport() {
 }
 
 async function importFromGmail() {
-  if (!cloud.user) {
-    closeDialog(elements.connectionsDialog);
-    await openAccount();
-    showAuthNotice('Gmail에서 후보를 찾으려면 먼저 택배허브 계정에 로그인해 주세요.');
-    return;
-  }
   if (!String(GMAIL_CONFIG.clientId || '').trim()) {
     showToast('Gmail 연결 기능을 아직 준비하지 못했어요. 메일을 직접 붙여넣어 번호를 찾을 수 있어요.');
     return;
