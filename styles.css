@@ -255,11 +255,16 @@ input:focus, textarea:focus, select:focus { border-color: rgba(143, 126, 255, .8
 .source-list { display: grid; gap: 10px; }
 .source-card { padding: 15px; border: 1px solid var(--line); border-radius: 15px; background: rgba(7, 12, 21, .32); }
 .source-card.source-ready { border-color: rgba(78, 212, 168, .22); background: rgba(78, 212, 168, .055); }
+.source-card.source-featured { border-color: rgba(138, 120, 255, .42); background: linear-gradient(135deg, rgba(111, 93, 205, .16), rgba(78, 212, 168, .07)); box-shadow: inset 0 1px 0 rgba(225, 219, 255, .06); }
 .source-heading { display: flex; gap: 14px; justify-content: space-between; align-items: flex-start; }
 .source-heading h3 { margin: 0; color: #e4e9f4; font-size: 14px; letter-spacing: -.02em; }
 .source-heading p { max-width: 510px; margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.58; }
 .source-badge { flex: 0 0 auto; padding: 4px 6px; border: 1px solid rgba(78, 212, 168, .28); border-radius: 999px; color: #acebd6; background: rgba(78, 212, 168, .1); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .source-badge.muted { border-color: var(--line); color: var(--subtle); background: rgba(153, 169, 195, .08); }
+.source-section-title { margin: 8px 1px -2px; color: #dce4f4; font-size: 12px; font-weight: 780; letter-spacing: -.015em; }
+.source-section-title span { margin-left: 5px; color: var(--subtle); font-size: 10px; font-weight: 650; }
+.source-steps { display: grid; gap: 4px; margin: 13px 0 0; padding-left: 19px; color: #b9c5d7; font-size: 11px; line-height: 1.5; }
+.source-steps li::marker { color: #c4b9ff; font-weight: 800; }
 .source-card > .button { margin-top: 13px; }
 .source-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 13px; }
 .connection-notice { min-height: 20px; margin: 15px 1px 0; color: #b9c6dc; font-size: 11px; line-height: 1.58; }
@@ -268,11 +273,18 @@ input:focus, textarea:focus, select:focus { border-color: rgba(143, 126, 255, .8
 .shortcut-status-panel strong { color: #d9f6e9; font-size: 13px; }
 .shortcut-status-panel p { margin: 5px 0 0; color: #a8cabe; font-size: 11px; line-height: 1.55; }
 .shortcut-secret-panel { margin-top: 13px; padding: 14px; border: 1px solid rgba(255, 196, 107, .27); border-radius: 13px; background: rgba(255, 196, 107, .055); }
-.shortcut-secret-panel h3, .shortcut-guide h3 { margin: 0; color: #e6ebf6; font-size: 13px; }
+.shortcut-secret-panel h3, .shortcut-summary h3 { margin: 0; color: #e6ebf6; font-size: 13px; }
 .shortcut-secret-panel > p { margin: 6px 0 13px; color: #c9bd9e; font-size: 11px; line-height: 1.55; }
 .shortcut-secret-panel label { display: block; margin-top: 10px; color: var(--muted); font-size: 11px; }
 .shortcut-secret-panel input { font-family: var(--mono); font-size: 10px; letter-spacing: .01em; }
-.shortcut-guide { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: rgba(7, 12, 21, .35); }
+.shortcut-summary { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: rgba(7, 12, 21, .35); }
+.shortcut-summary ol { display: grid; gap: 7px; margin: 11px 0 0; padding-left: 20px; color: #b9c5d7; font-size: 11px; line-height: 1.58; }
+.shortcut-summary li::marker { color: #b9aaff; font-weight: 800; }
+.shortcut-guide { margin-top: 10px; padding: 0; border: 1px solid var(--line); border-radius: 13px; background: rgba(7, 12, 21, .35); }
+.shortcut-guide summary { padding: 13px 14px; color: #d9d3ff; cursor: pointer; font-size: 12px; font-weight: 760; }
+.shortcut-guide[open] summary { border-bottom: 1px solid var(--line); }
+.shortcut-guide-content { padding: 13px 14px 14px; }
+.shortcut-guide-content > p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .shortcut-guide ol { display: grid; gap: 9px; margin: 11px 0 0; padding-left: 20px; color: #b9c5d7; font-size: 11px; line-height: 1.58; }
 .shortcut-guide li::marker { color: #b9aaff; font-weight: 800; }
 .shortcut-guide code { display: block; margin-top: 5px; padding: 7px 8px; overflow-wrap: anywhere; border: 1px solid rgba(138, 120, 255, .22); border-radius: 8px; color: #d9d3ff; background: rgba(111, 93, 205, .1); font-family: var(--mono); font-size: 10px; line-height: 1.45; }
