@@ -20,7 +20,7 @@ import {
   tombstoneToRow,
 } from './cloud.js?v=20260824-auth-mail-4';
 import { findGmailTrackingCandidates } from './gmail.js?v=20260824-auth-mail-4';
-import { GMAIL_CONFIG } from './supabase-config.js?v=20260824-auth-mail-4';
+import { GMAIL_CONFIG, SUPABASE_CONFIG } from './supabase-config.js?v=20260824-auth-mail-4';
 
 const STORAGE_KEY = 'parcel-hub.items.v3';
 const TOMBSTONE_STORAGE_KEY = 'parcel-hub.deleted.v1';
@@ -107,7 +107,21 @@ const elements = {
   recoveryNotice: $('recoveryNotice'),
   connectionsDialog: $('connectionsDialog'),
   connectionsCloseButton: $('connectionsCloseButton'),
+  iphoneShortcutSetupButton: $('iphoneShortcutSetupButton'),
   iphoneImportButton: $('iphoneImportButton'),
+  iphoneShortcutDialog: $('iphoneShortcutDialog'),
+  iphoneShortcutCloseButton: $('iphoneShortcutCloseButton'),
+  iphoneShortcutStatus: $('iphoneShortcutStatus'),
+  iphoneShortcutStatusDetail: $('iphoneShortcutStatusDetail'),
+  iphoneShortcutSecretPanel: $('iphoneShortcutSecretPanel'),
+  iphoneShortcutEndpoint: $('iphoneShortcutEndpoint'),
+  iphoneShortcutKey: $('iphoneShortcutKey'),
+  iphoneShortcutCopyEndpointButton: $('iphoneShortcutCopyEndpointButton'),
+  iphoneShortcutCopyKeyButton: $('iphoneShortcutCopyKeyButton'),
+  iphoneShortcutCreateButton: $('iphoneShortcutCreateButton'),
+  iphoneShortcutRotateButton: $('iphoneShortcutRotateButton'),
+  iphoneShortcutRevokeButton: $('iphoneShortcutRevokeButton'),
+  iphoneShortcutNotice: $('iphoneShortcutNotice'),
   gmailSetupButton: $('gmailSetupButton'),
   gmailConnectButton: $('gmailConnectButton'),
   gmailManualButton: $('gmailManualButton'),
@@ -135,6 +149,12 @@ const cloud = {
   status: 'local',
   syncInFlight: false,
   syncTimer: null,
+};
+
+const iphoneShortcut = {
+  connection: null,
+  secret: '',
+  loading: false,
 };
 
 function createId() {
@@ -858,10 +878,10 @@ function updateTrackingHint() {
     : `${detected.reason} 국내 숫자 운송장은 택배사 번호 체계가 겹쳐 직접 선택이 가장 정확해요.`;
 }
 
-async function copyTrackingNumber(value, quiet = false) {
+async function copyTrackingNumber(value, quiet = false, successMessage = '운송장번호를 복사했어요.') {
   try {
     await navigator.clipboard.writeText(value);
-    if (!quiet) showToast('운송장번호를 복사했어요.');
+    if (!quiet) showToast(successMessage);
   } catch {
     const textarea = document.createElement('textarea');
     textarea.value = value;
@@ -872,7 +892,7 @@ async function copyTrackingNumber(value, quiet = false) {
     textarea.select();
     const copied = document.execCommand('copy');
     textarea.remove();
-    showToast(copied ? '운송장번호를 복사했어요.' : '복사하지 못했어요. 번호를 길게 눌러 복사해 주세요.');
+    showToast(copied ? successMessage : '복사하지 못했어요. 길게 눌러 복사해 주세요.');
   }
 }
 
@@ -951,6 +971,129 @@ async function importFromGmail() {
 
 function showNaverSetup() {
   elements.connectionNotice.textContent = '네이버 메일은 일반 비밀번호를 절대 입력하면 안 돼요. 외부 메일 연결을 쓰려면 네이버에서 IMAP을 켜고 앱 비밀번호를 따로 만든 뒤, 일회성 보안 연결을 설정해야 해요. 그전에는 메일을 복사해 가져올 수 있어요.';
+}
+
+function iphoneShortcutEndpoint() {
+  return `${SUPABASE_CONFIG.url}/functions/v1/iphone-shortcut-ingest`;
+}
+
+function formatShortcutDate(value) {
+  const time = Date.parse(value || '');
+  if (Number.isNaN(time)) return '';
+  return new Intl.DateTimeFormat('ko-KR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(time));
+}
+
+function clearIphoneShortcutSecret() {
+  iphoneShortcut.secret = '';
+  elements.iphoneShortcutKey.value = '';
+  elements.iphoneShortcutSecretPanel.hidden = true;
+}
+
+function renderIphoneShortcutSetup() {
+  const connection = iphoneShortcut.connection;
+  const connected = Boolean(connection?.connected);
+  elements.iphoneShortcutEndpoint.value = iphoneShortcutEndpoint();
+  elements.iphoneShortcutCreateButton.hidden = connected;
+  elements.iphoneShortcutRotateButton.hidden = !connected;
+  elements.iphoneShortcutRevokeButton.hidden = !connected;
+  elements.iphoneShortcutCreateButton.disabled = iphoneShortcut.loading;
+  elements.iphoneShortcutRotateButton.disabled = iphoneShortcut.loading;
+  elements.iphoneShortcutRevokeButton.disabled = iphoneShortcut.loading;
+
+  if (iphoneShortcut.loading) {
+    elements.iphoneShortcutStatus.textContent = '연결 상태를 확인하는 중…';
+    elements.iphoneShortcutStatusDetail.textContent = '';
+    return;
+  }
+  if (!connected) {
+    elements.iphoneShortcutStatus.textContent = '아직 연결되지 않음';
+    elements.iphoneShortcutStatusDetail.textContent = '연결 키를 만들면 이 계정의 iPhone 단축어 한 대를 연결할 수 있어요.';
+    return;
+  }
+  elements.iphoneShortcutStatus.textContent = `연결됨 · 키 끝 ${connection.secretHint}`;
+  const lastUsed = formatShortcutDate(connection.lastUsedAt);
+  elements.iphoneShortcutStatusDetail.textContent = lastUsed
+    ? `마지막 자동 등록 시도: ${lastUsed}`
+    : '아직 자동 등록된 메시지가 없어요. iPhone에서 단축어 설정을 마친 뒤 배송 메시지로 확인해 보세요.';
+}
+
+function readableShortcutError(error, fallback) {
+  const message = String(error?.message || error || '').toLowerCase();
+  if (message.includes('unauthorized') || message.includes('401')) return '로그인 상태를 다시 확인해 주세요.';
+  if (message.includes('forbidden') || message.includes('403')) return '이 사이트에서만 연결 설정을 할 수 있어요.';
+  if (message.includes('already_connected') || message.includes('409')) return '이미 연결된 iPhone 자동 등록이 있어요. 연결 코드를 바꾸거나 해제할 수 있어요.';
+  return fallback;
+}
+
+async function callIphoneShortcutSetup(action) {
+  const client = await initializeCloud();
+  if (!client || !cloud.user) throw new Error('unauthorized');
+  const { data, error } = await client.functions.invoke('iphone-shortcut-setup', {
+    body: { action },
+  });
+  if (error) throw error;
+  if (!data?.ok) throw new Error(data?.error || 'temporary_failure');
+  return data;
+}
+
+async function loadIphoneShortcutStatus() {
+  iphoneShortcut.loading = true;
+  renderIphoneShortcutSetup();
+  try {
+    const result = await callIphoneShortcutSetup('status');
+    iphoneShortcut.connection = result.connection || null;
+    elements.iphoneShortcutNotice.textContent = '';
+  } catch (error) {
+    iphoneShortcut.connection = null;
+    elements.iphoneShortcutNotice.textContent = readableShortcutError(error, 'iPhone 자동 등록 상태를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.');
+  } finally {
+    iphoneShortcut.loading = false;
+    renderIphoneShortcutSetup();
+  }
+}
+
+async function openIphoneShortcutSetup() {
+  if (!cloud.user) {
+    closeDialog(elements.connectionsDialog);
+    await openAccount();
+    showAuthNotice('iPhone 자동 등록을 연결하려면 먼저 택배허브 계정에 로그인해 주세요.');
+    return;
+  }
+  clearIphoneShortcutSecret();
+  elements.iphoneShortcutNotice.textContent = '';
+  closeDialog(elements.connectionsDialog);
+  openDialog(elements.iphoneShortcutDialog);
+  await loadIphoneShortcutStatus();
+}
+
+async function changeIphoneShortcutConnection(action) {
+  const rotating = action === 'rotate';
+  if (rotating && !window.confirm('기존 iPhone 연결 코드는 바로 작동하지 않게 돼요. 새 코드로 바꿀까요?')) return;
+  if (action === 'revoke' && !window.confirm('iPhone 자동 등록을 해제할까요? 이 iPhone의 기존 연결 코드는 바로 사용할 수 없게 돼요.')) return;
+
+  iphoneShortcut.loading = true;
+  renderIphoneShortcutSetup();
+  try {
+    const result = await callIphoneShortcutSetup(action);
+    iphoneShortcut.connection = result.connection || null;
+    if (result.secret) {
+      iphoneShortcut.secret = result.secret;
+      elements.iphoneShortcutKey.value = result.secret;
+      elements.iphoneShortcutSecretPanel.hidden = false;
+      elements.iphoneShortcutNotice.textContent = '연결 키를 한 번만 표시했어요. iPhone 단축어에 붙여넣은 뒤 이 창을 닫아 주세요.';
+    } else {
+      clearIphoneShortcutSecret();
+      elements.iphoneShortcutNotice.textContent = 'iPhone 자동 등록을 해제했어요.';
+    }
+  } catch (error) {
+    elements.iphoneShortcutNotice.textContent = readableShortcutError(error, '연결 설정을 바꾸지 못했어요. 잠시 후 다시 시도해 주세요.');
+  } finally {
+    iphoneShortcut.loading = false;
+    renderIphoneShortcutSetup();
+  }
 }
 
 function openDetail(item) {
@@ -1169,7 +1312,18 @@ elements.connectionsOpenButton.addEventListener('click', () => {
   openDialog(elements.connectionsDialog);
 });
 elements.connectionsCloseButton.addEventListener('click', () => closeDialog(elements.connectionsDialog));
+elements.iphoneShortcutSetupButton.addEventListener('click', () => void openIphoneShortcutSetup());
 elements.iphoneImportButton.addEventListener('click', () => openTextImport('아이폰에서 복사한 문자'));
+elements.iphoneShortcutCloseButton.addEventListener('click', () => {
+  clearIphoneShortcutSecret();
+  closeDialog(elements.iphoneShortcutDialog);
+});
+elements.iphoneShortcutDialog.addEventListener('close', clearIphoneShortcutSecret);
+elements.iphoneShortcutCreateButton.addEventListener('click', () => void changeIphoneShortcutConnection('create'));
+elements.iphoneShortcutRotateButton.addEventListener('click', () => void changeIphoneShortcutConnection('rotate'));
+elements.iphoneShortcutRevokeButton.addEventListener('click', () => void changeIphoneShortcutConnection('revoke'));
+elements.iphoneShortcutCopyEndpointButton.addEventListener('click', () => void copyTrackingNumber(elements.iphoneShortcutEndpoint.value, false, '보낼 주소를 복사했어요.'));
+elements.iphoneShortcutCopyKeyButton.addEventListener('click', () => void copyTrackingNumber(elements.iphoneShortcutKey.value, false, 'iPhone 연결 키를 복사했어요.'));
 elements.gmailManualButton.addEventListener('click', () => openTextImport('Gmail 메일'));
 elements.naverManualButton.addEventListener('click', () => openTextImport('네이버 메일'));
 elements.gmailSetupButton.addEventListener('click', showGmailSetup);
@@ -1254,3 +1408,4 @@ render();
 updateTrackingHint();
 updateCloudPresentation();
 void initializeCloud();
+

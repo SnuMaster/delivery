@@ -29,6 +29,9 @@ jobs:
           node --check app.js
           node --check cloud.js
           node --check gmail.js
+          node --check supabase/functions/iphone-shortcut-ingest/iphone-shortcut.js
+          node --check supabase/functions/iphone-shortcut-ingest/index.js
+          node --check supabase/functions/iphone-shortcut-setup/index.js
           npm test
       - name: Stage static site
         run: |
@@ -60,3 +63,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+

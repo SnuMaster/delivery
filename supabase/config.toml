@@ -1,0 +1,10 @@
+[functions.iphone-shortcut-setup]
+# The function verifies the current user's session itself so CORS preflight can
+# reach the handler. It rejects every non-Pages origin and unauthenticated POST.
+verify_jwt = false
+
+[functions.iphone-shortcut-ingest]
+# Apple Shortcuts cannot send a Supabase user JWT. The function verifies the
+# per-account random key in its request body and rate-limits it itself.
+verify_jwt = false
+
