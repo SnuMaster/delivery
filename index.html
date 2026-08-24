@@ -7,7 +7,7 @@
   <meta name="description" content="운송장번호를 브라우저에 안전하게 모으고 각 택배사의 공식 배송조회로 연결하는 개인용 택배 대시보드">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://esm.sh https://accounts.google.com; connect-src 'self' https://esm.sh https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://gmail.googleapis.com; frame-src https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self' https://www.ds3211.co.kr https://www.lotteglogis.com">
   <title>택배허브 — 내 운송장 한 화면에</title>
-  <link rel="stylesheet" href="styles.css?v=20260824-mail-simple-2">
+  <link rel="stylesheet" href="styles.css?v=20260824-gmail-connect-1">
 </head>
 <body>
   <div class="page-shell">
@@ -266,25 +266,26 @@
         <div><p class="eyebrow">GET TRACKING NUMBERS</p><h2 id="connectionsTitle">운송장 가져오기</h2></div>
         <button class="icon-button" id="connectionsCloseButton" type="button" aria-label="문자와 메일 가져오기 닫기">×</button>
       </div>
-      <p class="modal-intro">가장 쉬운 방법부터 골라보세요. 문자·메일 원문은 자동 저장하지 않고, 찾은 번호도 추가 전에 한 번 확인하게 해요.</p>
+      <p class="modal-intro" id="connectionsIntro">Gmail을 연결하면 최근 배송 메일에서 운송장 번호를 찾아요. 메일 원문은 저장하지 않고, 찾은 번호도 추가 전에 한 번 확인하게 해요.</p>
       <div class="source-list">
+        <section class="source-card source-ready source-featured" id="gmailSourceCard" hidden>
+          <div class="source-heading"><div><h3>Gmail에서 운송장 찾기</h3><p id="gmailDescription">Google 계정을 연결하면 최근 배송 메일에서 운송장 번호를 찾아요.</p></div><span class="source-badge" id="gmailAvailability">연결 가능</span></div>
+          <div class="source-actions"><button class="button button-primary" id="gmailConnectButton" type="button" hidden>Gmail 연결하고 운송장 찾기</button><button class="text-button" id="gmailManualButton" type="button">메일 직접 붙여넣기</button></div>
+          <p class="gmail-privacy-note" id="gmailPrivacyNote" hidden>Google 동의창에서 Gmail 읽기 권한을 허용하면, 최근 배송 관련 메일만 확인합니다. 메일 원문·첨부파일·로그인 정보는 저장하지 않습니다.</p>
+        </section>
         <section class="source-card source-ready source-featured">
           <div class="source-heading"><div><h3>문자·메일 붙여넣기</h3><p>받은 문자나 메일을 복사해 붙여넣으면 운송장 번호만 찾아드려요. 지금 바로 사용할 수 있어요.</p></div><span class="source-badge">가장 쉬움</span></div>
           <ol class="source-steps"><li>배송 문자나 주문 메일을 엽니다.</li><li>내용을 전체 복사합니다.</li><li>아래 버튼을 눌러 붙여넣고 번호를 확인합니다.</li></ol>
           <div class="source-actions"><button class="button button-primary" id="quickTextImportButton" type="button">붙여넣고 번호 찾기</button></div>
         </section>
-        <p class="source-section-title">자동으로 받고 싶다면 <span>선택 기능</span></p>
+        <p class="source-section-title">다른 가져오기 방법 <span>선택 기능</span></p>
         <section class="source-card source-ready">
           <div class="source-heading"><div><h3>iPhone의 새 배송 문자</h3><p>앞으로 새로 오는 배송 문자에서 번호만 자동으로 추가해요. 과거 문자나 메시지함 전체는 읽지 않아요.</p></div><span class="source-badge muted">로그인 후 사용</span></div>
           <div class="source-actions"><button class="button button-secondary" id="iphoneShortcutSetupButton" type="button">자동 추가 시작</button><button class="text-button" id="iphoneImportButton" type="button">기존 문자 붙여넣기</button></div>
         </section>
-        <section class="source-card">
-          <div class="source-heading"><div><h3>Gmail 배송 메일</h3><p id="gmailDescription">Gmail 자동 가져오기는 준비 중이에요. 지금은 배송 메일을 복사해 붙여넣으면 바로 번호를 찾을 수 있어요.</p></div><span class="source-badge muted" id="gmailAvailability">준비 중</span></div>
-          <div class="source-actions"><button class="button button-secondary" id="gmailConnectButton" type="button" hidden>Google 계정으로 번호 찾기</button><button class="text-button" id="gmailManualButton" type="button">Gmail 메일 붙여넣기</button></div>
-        </section>
-        <section class="source-card">
-          <div class="source-heading"><div><h3>네이버 메일</h3><p>네이버 메일 자동 가져오기는 아직 준비 중이에요. 비밀번호를 입력할 필요 없이, 배송 메일을 복사해 바로 번호를 찾을 수 있어요.</p></div><span class="source-badge muted">준비 중</span></div>
-          <div class="source-actions"><button class="text-button" id="naverManualButton" type="button">네이버 메일 붙여넣기</button></div>
+        <section class="source-card" id="naverSourceCard">
+          <div class="source-heading"><div><h3>네이버 메일</h3><p>네이버 개인 메일은 권한 허용만으로 받은편지함을 읽는 기능을 제공하지 않아요. 안전을 위해 네이버 비밀번호나 앱 비밀번호는 받지 않아요.</p></div><span class="source-badge muted">자동 연결 불가</span></div>
+          <div class="source-actions"><a class="button button-secondary" href="https://mail.naver.com/" target="_blank" rel="noopener noreferrer">네이버 메일 열기</a><button class="text-button" id="naverManualButton" type="button">내용 붙여넣기</button></div>
         </section>
       </div>
       <p class="connection-notice" id="connectionNotice" aria-live="polite"></p>
@@ -345,7 +346,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <noscript><p class="noscript">택배허브를 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
-  <script type="module" src="app.js?v=20260824-mail-simple-1"></script>
+  <script type="module" src="app.js?v=20260825-gmail-live-1"></script>
 </body>
 </html>
-

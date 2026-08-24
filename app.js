@@ -19,8 +19,8 @@ import {
   rowToTombstone,
   tombstoneToRow,
 } from './cloud.js?v=20260824-auth-mail-4';
-import { findGmailTrackingCandidates } from './gmail.js?v=20260824-mail-simple-1';
-import { GMAIL_CONFIG, SUPABASE_CONFIG } from './supabase-config.js?v=20260824-auth-mail-4';
+import { findGmailTrackingCandidates, prepareGmailConnection } from './gmail.js?v=20260825-gmail-live-1';
+import { GMAIL_CONFIG, SUPABASE_CONFIG } from './supabase-config.js?v=20260825-gmail-live-1';
 
 const STORAGE_KEY = 'parcel-hub.items.v3';
 const TOMBSTONE_STORAGE_KEY = 'parcel-hub.deleted.v1';
@@ -110,6 +110,7 @@ const elements = {
   recoveryNotice: $('recoveryNotice'),
   connectionsDialog: $('connectionsDialog'),
   connectionsCloseButton: $('connectionsCloseButton'),
+  connectionsIntro: $('connectionsIntro'),
   quickTextImportButton: $('quickTextImportButton'),
   iphoneShortcutSetupButton: $('iphoneShortcutSetupButton'),
   iphoneImportButton: $('iphoneImportButton'),
@@ -127,10 +128,12 @@ const elements = {
   iphoneShortcutRevokeButton: $('iphoneShortcutRevokeButton'),
   iphoneShortcutGuide: $('iphoneShortcutGuide'),
   iphoneShortcutNotice: $('iphoneShortcutNotice'),
+  gmailSourceCard: $('gmailSourceCard'),
   gmailConnectButton: $('gmailConnectButton'),
   gmailManualButton: $('gmailManualButton'),
   gmailDescription: $('gmailDescription'),
   gmailAvailability: $('gmailAvailability'),
+  gmailPrivacyNote: $('gmailPrivacyNote'),
   naverManualButton: $('naverManualButton'),
   connectionNotice: $('connectionNotice'),
   toast: $('toast'),
@@ -161,6 +164,12 @@ const iphoneShortcut = {
   connection: null,
   secret: '',
   loading: false,
+};
+
+const gmailConnection = {
+  ready: false,
+  preparing: false,
+  preparationError: '',
 };
 
 function createId() {
@@ -952,13 +961,48 @@ function openCandidateReview({ title, description, candidates }) {
 }
 
 function renderGmailAvailability() {
-  const available = Boolean(GMAIL_CONFIG.clientId);
+  const available = Boolean(String(GMAIL_CONFIG.clientId || '').trim());
+  elements.gmailSourceCard.hidden = !available;
   elements.gmailConnectButton.hidden = !available;
-  elements.gmailAvailability.textContent = available ? '자동 찾기 가능' : '준비 중';
-  elements.gmailAvailability.classList.toggle('muted', !available);
-  elements.gmailDescription.textContent = available
-    ? 'Google 계정을 한 번 선택하면 최근 배송 메일에서 운송장 후보를 찾아요. 메일 원문은 저장하지 않고, 계속 자동으로 읽지도 않아요.'
-    : 'Gmail 자동 가져오기는 준비 중이에요. 지금은 배송 메일을 복사해 붙여넣으면 바로 번호를 찾을 수 있어요.';
+  elements.gmailPrivacyNote.hidden = !available;
+
+  if (!available) {
+    elements.connectionsIntro.textContent = '문자·메일 원문은 자동 저장하지 않고, 찾은 번호도 추가 전에 한 번 확인하게 해요.';
+    return;
+  }
+
+  elements.connectionsIntro.textContent = 'Gmail 계정을 연결하면 최근 배송 메일에서 운송장 번호를 찾아요. 메일 원문은 저장하지 않고, 찾은 번호도 추가 전에 한 번 확인하게 해요.';
+  elements.gmailAvailability.classList.toggle('muted', Boolean(gmailConnection.preparationError));
+  elements.gmailAvailability.textContent = gmailConnection.preparationError
+    ? '준비 다시 필요'
+    : gmailConnection.ready
+      ? '연결 가능'
+      : '준비 중';
+  elements.gmailDescription.textContent = gmailConnection.preparationError
+    ? 'Gmail 연결 도구를 준비하지 못했어요. 인터넷 연결을 확인한 뒤 페이지를 새로고침해 주세요.'
+    : 'Google 계정을 연결하면 최근 6개월 배송·주문 메일에서 운송장 번호를 찾아요. 메일 원문·첨부파일은 저장하지 않아요.';
+  elements.gmailConnectButton.disabled = !gmailConnection.ready;
+  elements.gmailConnectButton.textContent = gmailConnection.preparing
+    ? 'Gmail 연결 준비 중…'
+    : gmailConnection.ready
+      ? 'Gmail 연결하고 운송장 찾기'
+      : 'Gmail 연결 준비 중…';
+}
+
+async function prepareGmailImport() {
+  if (!String(GMAIL_CONFIG.clientId || '').trim() || gmailConnection.ready || gmailConnection.preparing) return;
+  gmailConnection.preparing = true;
+  gmailConnection.preparationError = '';
+  renderGmailAvailability();
+  try {
+    await prepareGmailConnection();
+    gmailConnection.ready = true;
+  } catch {
+    gmailConnection.preparationError = 'sdk_load_failed';
+  } finally {
+    gmailConnection.preparing = false;
+    renderGmailAvailability();
+  }
 }
 
 async function importFromGmail() {
@@ -968,22 +1012,28 @@ async function importFromGmail() {
     showAuthNotice('Gmail에서 후보를 찾으려면 먼저 택배허브 계정에 로그인해 주세요.');
     return;
   }
-  if (!GMAIL_CONFIG.clientId) {
-    showToast('Gmail 자동 가져오기는 아직 준비 중이에요. Gmail 메일을 복사해서 바로 가져올 수 있어요.');
+  if (!String(GMAIL_CONFIG.clientId || '').trim()) {
+    showToast('Gmail 연결 기능을 아직 준비하지 못했어요. 메일을 직접 붙여넣어 번호를 찾을 수 있어요.');
+    return;
+  }
+  if (!gmailConnection.ready) {
+    elements.connectionNotice.textContent = 'Gmail 연결을 준비하는 중이에요. 잠시 후 다시 눌러 주세요.';
     return;
   }
 
   const originalLabel = elements.gmailConnectButton.textContent;
   elements.gmailConnectButton.disabled = true;
-  elements.gmailConnectButton.textContent = 'Gmail 확인 중…';
+  elements.gmailConnectButton.setAttribute('aria-busy', 'true');
+  elements.gmailConnectButton.textContent = 'Google 계정 연결 중…';
+  elements.connectionNotice.textContent = '';
   try {
     const result = await findGmailTrackingCandidates({
       clientId: GMAIL_CONFIG.clientId,
       existingNumbers: state.items.map(item => item.tracking),
     });
     openCandidateReview({
-      title: 'Gmail에서 찾은 번호',
-      description: `최근 배송 메일 ${result.messagesScanned}개에서 찾은 후보예요. 번호와 택배사를 확인한 뒤 추가하세요.${result.messagesSkipped ? ` ${result.messagesSkipped}개 메일은 읽지 못해 건너뛰었어요.` : ''}`,
+      title: 'Gmail에서 찾은 운송장',
+      description: `최근 ${result.searchDays}일 배송·주문 메일 ${result.messagesScanned}개${result.scanWasLimited ? ` (검색 결과 ${result.messagesMatched}개 중 최신 ${result.messageLimit}개)` : ''}에서 찾은 후보예요. 번호와 택배사를 확인한 뒤 추가하세요.${result.messagesSkipped ? ` ${result.messagesSkipped}개 메일은 읽지 못해 건너뛰었어요.` : ''}`,
       candidates: result.candidates,
     });
     showToast(result.candidates.length
@@ -993,6 +1043,7 @@ async function importFromGmail() {
     elements.connectionNotice.textContent = String(error?.message || 'Gmail을 읽지 못했어요. 잠시 후 다시 시도해 주세요.');
   } finally {
     elements.gmailConnectButton.disabled = false;
+    elements.gmailConnectButton.removeAttribute('aria-busy');
     elements.gmailConnectButton.textContent = originalLabel;
   }
 }
@@ -1435,6 +1486,6 @@ elements.detailOfficialLink.addEventListener('click', event => {
 render();
 updateTrackingHint();
 renderGmailAvailability();
+void prepareGmailImport();
 updateCloudPresentation();
 void initializeCloud();
-

@@ -17,5 +17,7 @@ export const SUPABASE_CONFIG = Object.freeze({
  * never enabled by hiding a client secret in this static site.
  */
 export const GMAIL_CONFIG = Object.freeze({
-  clientId: '',
+  // This is intentionally the public OAuth client ID only. The matching
+  // client secret is not used by, or stored in, this browser-only site.
+  clientId: '604107443475-dr9oigc7uopna8t8at1i96qvijb5kuir.apps.googleusercontent.com',
 });

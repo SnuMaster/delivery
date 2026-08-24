@@ -268,6 +268,7 @@ input:focus, textarea:focus, select:focus { border-color: rgba(143, 126, 255, .8
 .source-steps li::marker { color: #c4b9ff; font-weight: 800; }
 .source-card > .button { margin-top: 13px; }
 .source-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 13px; }
+.gmail-privacy-note { margin: 12px 0 0; color: #b9c9da; font-size: 10px; line-height: 1.58; }
 .connection-notice { min-height: 20px; margin: 15px 1px 0; color: #b9c6dc; font-size: 11px; line-height: 1.58; }
 .shortcut-card { width: min(680px, 100%); }
 .shortcut-status-panel { padding: 14px; border: 1px solid rgba(78, 212, 168, .22); border-radius: 13px; background: rgba(78, 212, 168, .06); }
@@ -352,4 +353,3 @@ input:focus, textarea:focus, select:focus { border-color: rgba(143, 126, 255, .8
   .candidate-main { padding-left: 27px; }
   .candidate-carrier { grid-column: auto; }
 }
-
