@@ -8,6 +8,7 @@ const MESSAGE_LIMIT = 50;
 const SEARCH_DAYS = 180;
 const FETCH_CONCURRENCY = 4;
 const FETCH_TIMEOUT_MS = 20_000;
+const TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const DELIVERY_SEARCH_QUERY = `newer_than:${SEARCH_DAYS}d (운송장 OR 송장 OR 택배 OR 배송 OR 출고 OR 발송 OR tracking OR waybill OR shipment OR delivery)`;
 
 let gisLoader;
@@ -100,17 +101,27 @@ async function requestAccessToken(clientId) {
     throw new Error('Gmail 연결을 준비하는 중이에요. 잠시 후 다시 눌러 주세요.');
   }
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback(value);
+    };
+    const timeout = setTimeout(() => {
+      finish(reject, new Error('Google 계정 선택 창을 열지 못했어요. 팝업 차단을 해제한 뒤 다시 눌러 주세요.'));
+    }, TOKEN_REQUEST_TIMEOUT_MS);
     const tokenClient = globalThis.google.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope: GMAIL_SCOPE,
       callback: response => {
         if (response?.error || !response?.access_token) {
-          reject(new Error(response?.error_description || 'Gmail 읽기 권한을 받지 못했습니다.'));
+          finish(reject, new Error(response?.error_description || 'Gmail 읽기 권한을 받지 못했습니다.'));
           return;
         }
-        resolve(response.access_token);
+        finish(resolve, response.access_token);
       },
-      error_callback: response => reject(new Error(response?.message || 'Google 계정 선택을 완료하지 않았습니다.')),
+      error_callback: response => finish(reject, new Error(response?.message || 'Google 계정 선택을 완료하지 않았습니다.')),
     });
     // This is called from the user's button press. The token stays only in
     // memory for this scan; no refresh token is issued or saved by the site.

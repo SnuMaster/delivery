@@ -19,7 +19,7 @@ import {
   rowToTombstone,
   tombstoneToRow,
 } from './cloud.js?v=20260824-auth-mail-4';
-import { findGmailTrackingCandidates, prepareGmailConnection } from './gmail.js?v=20260825-gmail-live-1';
+import { findGmailTrackingCandidates, prepareGmailConnection } from './gmail.js?v=20260825-gmail-live-2';
 import { GMAIL_CONFIG, SUPABASE_CONFIG } from './supabase-config.js?v=20260825-gmail-live-1';
 
 const STORAGE_KEY = 'parcel-hub.items.v3';
