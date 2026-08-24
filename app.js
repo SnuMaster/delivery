@@ -19,7 +19,7 @@ import {
   rowToTombstone,
   tombstoneToRow,
 } from './cloud.js?v=20260824-auth-mail-4';
-import { findGmailTrackingCandidates } from './gmail.js?v=20260824-auth-mail-4';
+import { findGmailTrackingCandidates } from './gmail.js?v=20260824-mail-simple-1';
 import { GMAIL_CONFIG, SUPABASE_CONFIG } from './supabase-config.js?v=20260824-auth-mail-4';
 
 const STORAGE_KEY = 'parcel-hub.items.v3';
@@ -55,8 +55,11 @@ const elements = {
   cloudBannerDescription: $('cloudBannerDescription'),
   syncNowButton: $('syncNowButton'),
   bulkDialog: $('bulkDialog'),
+  bulkTitle: $('bulkTitle'),
   bulkCloseButton: $('bulkCloseButton'),
   bulkCancelButton: $('bulkCancelButton'),
+  bulkSourceHint: $('bulkSourceHint'),
+  bulkPastePanel: $('bulkPastePanel'),
   bulkText: $('bulkText'),
   bulkPreview: $('bulkPreview'),
   bulkSummary: $('bulkSummary'),
@@ -107,6 +110,7 @@ const elements = {
   recoveryNotice: $('recoveryNotice'),
   connectionsDialog: $('connectionsDialog'),
   connectionsCloseButton: $('connectionsCloseButton'),
+  quickTextImportButton: $('quickTextImportButton'),
   iphoneShortcutSetupButton: $('iphoneShortcutSetupButton'),
   iphoneImportButton: $('iphoneImportButton'),
   iphoneShortcutDialog: $('iphoneShortcutDialog'),
@@ -121,11 +125,12 @@ const elements = {
   iphoneShortcutCreateButton: $('iphoneShortcutCreateButton'),
   iphoneShortcutRotateButton: $('iphoneShortcutRotateButton'),
   iphoneShortcutRevokeButton: $('iphoneShortcutRevokeButton'),
+  iphoneShortcutGuide: $('iphoneShortcutGuide'),
   iphoneShortcutNotice: $('iphoneShortcutNotice'),
-  gmailSetupButton: $('gmailSetupButton'),
   gmailConnectButton: $('gmailConnectButton'),
   gmailManualButton: $('gmailManualButton'),
-  naverSetupButton: $('naverSetupButton'),
+  gmailDescription: $('gmailDescription'),
+  gmailAvailability: $('gmailAvailability'),
   naverManualButton: $('naverManualButton'),
   connectionNotice: $('connectionNotice'),
   toast: $('toast'),
@@ -136,6 +141,7 @@ const state = {
   deletedItems: loadDeletedItems(),
   filter: 'all',
   bulkCandidates: [],
+  bulkMode: 'paste',
   pendingImport: [],
 };
 
@@ -920,16 +926,39 @@ function openPostTracking(item) {
 
 function openTextImport(sourceLabel = '') {
   closeDialog(elements.connectionsDialog);
+  state.bulkMode = 'paste';
   elements.bulkText.value = '';
+  elements.bulkTitle.textContent = '내용 붙여넣기';
+  elements.bulkSourceHint.textContent = sourceLabel
+    ? `${sourceLabel} 내용을 전체 복사한 뒤 아래에 붙여넣으세요. 운송장 번호만 찾아서 확인하기 쉽게 보여드려요.`
+    : '1. 배송 문자나 주문 메일을 열고 · 2. 전체 복사한 뒤 · 3. 아래에 붙여넣으세요. 번호만 찾아서 확인하기 쉽게 보여드려요.';
+  elements.bulkPastePanel.hidden = false;
   state.bulkCandidates = [];
   renderBulkCandidates();
   openDialog(elements.bulkDialog);
   elements.bulkText.focus();
-  if (sourceLabel) showToast(`${sourceLabel} 내용을 붙여넣으면 운송장 후보만 찾아드려요.`);
 }
 
-function showGmailSetup() {
-  elements.connectionNotice.textContent = 'Gmail 자동 연결은 Google 동의 화면과 이 사이트용 OAuth 설정이 필요한 기능이에요. Google Cloud에서 Gmail API와 웹용 Client ID를 만들고, 허용된 JavaScript 원본에 https://snumaster.github.io 를 등록한 뒤 공개 Client ID만 설정하면 됩니다. Gmail 비밀번호·Client secret·장기 토큰은 이 사이트에 넣지 않아요.';
+function openCandidateReview({ title, description, candidates }) {
+  closeDialog(elements.connectionsDialog);
+  state.bulkMode = 'review';
+  state.bulkCandidates = candidates;
+  elements.bulkTitle.textContent = title;
+  elements.bulkSourceHint.textContent = description;
+  elements.bulkPastePanel.hidden = true;
+  elements.bulkText.value = '';
+  renderBulkCandidates();
+  openDialog(elements.bulkDialog);
+}
+
+function renderGmailAvailability() {
+  const available = Boolean(GMAIL_CONFIG.clientId);
+  elements.gmailConnectButton.hidden = !available;
+  elements.gmailAvailability.textContent = available ? '자동 찾기 가능' : '준비 중';
+  elements.gmailAvailability.classList.toggle('muted', !available);
+  elements.gmailDescription.textContent = available
+    ? 'Google 계정을 한 번 선택하면 최근 배송 메일에서 운송장 후보를 찾아요. 메일 원문은 저장하지 않고, 계속 자동으로 읽지도 않아요.'
+    : 'Gmail 자동 가져오기는 준비 중이에요. 지금은 배송 메일을 복사해 붙여넣으면 바로 번호를 찾을 수 있어요.';
 }
 
 async function importFromGmail() {
@@ -940,7 +969,7 @@ async function importFromGmail() {
     return;
   }
   if (!GMAIL_CONFIG.clientId) {
-    showGmailSetup();
+    showToast('Gmail 자동 가져오기는 아직 준비 중이에요. Gmail 메일을 복사해서 바로 가져올 수 있어요.');
     return;
   }
 
@@ -952,25 +981,20 @@ async function importFromGmail() {
       clientId: GMAIL_CONFIG.clientId,
       existingNumbers: state.items.map(item => item.tracking),
     });
-    state.bulkCandidates = result.candidates;
-    renderBulkCandidates();
-    closeDialog(elements.connectionsDialog);
-    openDialog(elements.bulkDialog);
-    elements.bulkText.value = '';
-    elements.bulkText.focus();
+    openCandidateReview({
+      title: 'Gmail에서 찾은 번호',
+      description: `최근 배송 메일 ${result.messagesScanned}개에서 찾은 후보예요. 번호와 택배사를 확인한 뒤 추가하세요.${result.messagesSkipped ? ` ${result.messagesSkipped}개 메일은 읽지 못해 건너뛰었어요.` : ''}`,
+      candidates: result.candidates,
+    });
     showToast(result.candidates.length
-      ? `조건과 맞는 Gmail 메일 ${result.messagesScanned}개에서 ${result.candidates.length}개 후보를 찾았어요.`
-      : `조건과 맞는 Gmail 메일 ${result.messagesScanned}개를 확인했지만 새 운송장 후보는 없어요.`);
+      ? `Gmail 메일에서 ${result.candidates.length}개 후보를 찾았어요.`
+      : '확인한 Gmail 메일에서 새 운송장 후보는 없어요.');
   } catch (error) {
     elements.connectionNotice.textContent = String(error?.message || 'Gmail을 읽지 못했어요. 잠시 후 다시 시도해 주세요.');
   } finally {
     elements.gmailConnectButton.disabled = false;
     elements.gmailConnectButton.textContent = originalLabel;
   }
-}
-
-function showNaverSetup() {
-  elements.connectionNotice.textContent = '네이버 메일은 일반 비밀번호를 절대 입력하면 안 돼요. 외부 메일 연결을 쓰려면 네이버에서 IMAP을 켜고 앱 비밀번호를 따로 만든 뒤, 일회성 보안 연결을 설정해야 해요. 그전에는 메일을 복사해 가져올 수 있어요.';
 }
 
 function iphoneShortcutEndpoint() {
@@ -990,6 +1014,8 @@ function clearIphoneShortcutSecret() {
   iphoneShortcut.secret = '';
   elements.iphoneShortcutKey.value = '';
   elements.iphoneShortcutSecretPanel.hidden = true;
+  elements.iphoneShortcutGuide.hidden = true;
+  elements.iphoneShortcutGuide.open = false;
 }
 
 function renderIphoneShortcutSetup() {
@@ -1002,6 +1028,7 @@ function renderIphoneShortcutSetup() {
   elements.iphoneShortcutCreateButton.disabled = iphoneShortcut.loading;
   elements.iphoneShortcutRotateButton.disabled = iphoneShortcut.loading;
   elements.iphoneShortcutRevokeButton.disabled = iphoneShortcut.loading;
+  elements.iphoneShortcutGuide.hidden = !iphoneShortcut.secret;
 
   if (iphoneShortcut.loading) {
     elements.iphoneShortcutStatus.textContent = '연결 상태를 확인하는 중…';
@@ -1010,7 +1037,7 @@ function renderIphoneShortcutSetup() {
   }
   if (!connected) {
     elements.iphoneShortcutStatus.textContent = '아직 연결되지 않음';
-    elements.iphoneShortcutStatusDetail.textContent = '연결 키를 만들면 이 계정의 iPhone 단축어 한 대를 연결할 수 있어요.';
+    elements.iphoneShortcutStatusDetail.textContent = '자동 추가 시작을 누르면 이 계정의 iPhone 자동 추가 연결을 설정할 수 있어요.';
     return;
   }
   elements.iphoneShortcutStatus.textContent = `연결됨 · 키 끝 ${connection.secretHint}`;
@@ -1024,7 +1051,7 @@ function readableShortcutError(error, fallback) {
   const message = String(error?.message || error || '').toLowerCase();
   if (message.includes('unauthorized') || message.includes('401')) return '로그인 상태를 다시 확인해 주세요.';
   if (message.includes('forbidden') || message.includes('403')) return '이 사이트에서만 연결 설정을 할 수 있어요.';
-  if (message.includes('already_connected') || message.includes('409')) return '이미 연결된 iPhone 자동 등록이 있어요. 연결 코드를 바꾸거나 해제할 수 있어요.';
+  if (message.includes('already_connected') || message.includes('409')) return '이미 iPhone 자동 추가가 연결돼 있어요. 새 연결 코드를 만들거나 끌 수 있어요.';
   return fallback;
 }
 
@@ -1048,7 +1075,7 @@ async function loadIphoneShortcutStatus() {
     elements.iphoneShortcutNotice.textContent = '';
   } catch (error) {
     iphoneShortcut.connection = null;
-    elements.iphoneShortcutNotice.textContent = readableShortcutError(error, 'iPhone 자동 등록 상태를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.');
+    elements.iphoneShortcutNotice.textContent = readableShortcutError(error, 'iPhone 자동 추가 상태를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.');
   } finally {
     iphoneShortcut.loading = false;
     renderIphoneShortcutSetup();
@@ -1059,7 +1086,7 @@ async function openIphoneShortcutSetup() {
   if (!cloud.user) {
     closeDialog(elements.connectionsDialog);
     await openAccount();
-    showAuthNotice('iPhone 자동 등록을 연결하려면 먼저 택배허브 계정에 로그인해 주세요.');
+    showAuthNotice('iPhone 자동 추가를 연결하려면 먼저 택배허브 계정에 로그인해 주세요.');
     return;
   }
   clearIphoneShortcutSecret();
@@ -1072,7 +1099,7 @@ async function openIphoneShortcutSetup() {
 async function changeIphoneShortcutConnection(action) {
   const rotating = action === 'rotate';
   if (rotating && !window.confirm('기존 iPhone 연결 코드는 바로 작동하지 않게 돼요. 새 코드로 바꿀까요?')) return;
-  if (action === 'revoke' && !window.confirm('iPhone 자동 등록을 해제할까요? 이 iPhone의 기존 연결 코드는 바로 사용할 수 없게 돼요.')) return;
+  if (action === 'revoke' && !window.confirm('iPhone 자동 추가를 끌까요? 기존 연결 코드는 바로 사용할 수 없게 돼요.')) return;
 
   iphoneShortcut.loading = true;
   renderIphoneShortcutSetup();
@@ -1083,10 +1110,12 @@ async function changeIphoneShortcutConnection(action) {
       iphoneShortcut.secret = result.secret;
       elements.iphoneShortcutKey.value = result.secret;
       elements.iphoneShortcutSecretPanel.hidden = false;
-      elements.iphoneShortcutNotice.textContent = '연결 키를 한 번만 표시했어요. iPhone 단축어에 붙여넣은 뒤 이 창을 닫아 주세요.';
+      elements.iphoneShortcutGuide.hidden = false;
+      elements.iphoneShortcutGuide.open = true;
+      elements.iphoneShortcutNotice.textContent = '연결 코드를 한 번만 표시했어요. 아래 설정 방법을 보고 iPhone 단축어에 붙여넣어 주세요.';
     } else {
       clearIphoneShortcutSecret();
-      elements.iphoneShortcutNotice.textContent = 'iPhone 자동 등록을 해제했어요.';
+      elements.iphoneShortcutNotice.textContent = 'iPhone 자동 추가를 껐어요.';
     }
   } catch (error) {
     elements.iphoneShortcutNotice.textContent = readableShortcutError(error, '연결 설정을 바꾸지 못했어요. 잠시 후 다시 시도해 주세요.');
@@ -1166,7 +1195,12 @@ function candidateMarkup(candidate, index) {
 function renderBulkCandidates() {
   const candidates = state.bulkCandidates;
   if (!candidates.length) {
-    elements.bulkPreview.innerHTML = '<p class="preview-empty">운송장 후보를 찾지 못했어요. 번호와 주변의 “운송장”, “택배”, 택배사 이름을 함께 확인해 주세요.</p>';
+    const emptyMessage = state.bulkMode === 'paste' && !elements.bulkText.value.trim()
+      ? '문자나 메일을 붙여넣으면 운송장 후보를 바로 찾아드려요.'
+      : state.bulkMode === 'review'
+        ? '새 운송장 후보를 찾지 못했어요. 다른 배송 메일도 확인해 보세요.'
+        : '운송장 후보를 찾지 못했어요. 번호와 주변의 “운송장”, “택배”, 택배사 이름을 함께 확인해 주세요.';
+    elements.bulkPreview.innerHTML = `<p class="preview-empty">${emptyMessage}</p>`;
     elements.bulkSummary.textContent = '';
     elements.bulkAddButton.disabled = true;
     return;
@@ -1179,6 +1213,7 @@ function renderBulkCandidates() {
 }
 
 function updateBulkCandidates() {
+  if (state.bulkMode !== 'paste') return;
   state.bulkCandidates = extractTrackingCandidates(elements.bulkText.value, state.items.map(item => item.tracking));
   renderBulkCandidates();
 }
@@ -1312,8 +1347,9 @@ elements.connectionsOpenButton.addEventListener('click', () => {
   openDialog(elements.connectionsDialog);
 });
 elements.connectionsCloseButton.addEventListener('click', () => closeDialog(elements.connectionsDialog));
+elements.quickTextImportButton.addEventListener('click', () => openTextImport());
 elements.iphoneShortcutSetupButton.addEventListener('click', () => void openIphoneShortcutSetup());
-elements.iphoneImportButton.addEventListener('click', () => openTextImport('아이폰에서 복사한 문자'));
+elements.iphoneImportButton.addEventListener('click', () => openTextImport('iPhone 문자'));
 elements.iphoneShortcutCloseButton.addEventListener('click', () => {
   clearIphoneShortcutSecret();
   closeDialog(elements.iphoneShortcutDialog);
@@ -1323,12 +1359,10 @@ elements.iphoneShortcutCreateButton.addEventListener('click', () => void changeI
 elements.iphoneShortcutRotateButton.addEventListener('click', () => void changeIphoneShortcutConnection('rotate'));
 elements.iphoneShortcutRevokeButton.addEventListener('click', () => void changeIphoneShortcutConnection('revoke'));
 elements.iphoneShortcutCopyEndpointButton.addEventListener('click', () => void copyTrackingNumber(elements.iphoneShortcutEndpoint.value, false, '보낼 주소를 복사했어요.'));
-elements.iphoneShortcutCopyKeyButton.addEventListener('click', () => void copyTrackingNumber(elements.iphoneShortcutKey.value, false, 'iPhone 연결 키를 복사했어요.'));
+elements.iphoneShortcutCopyKeyButton.addEventListener('click', () => void copyTrackingNumber(elements.iphoneShortcutKey.value, false, 'iPhone 연결 코드를 복사했어요.'));
 elements.gmailManualButton.addEventListener('click', () => openTextImport('Gmail 메일'));
 elements.naverManualButton.addEventListener('click', () => openTextImport('네이버 메일'));
-elements.gmailSetupButton.addEventListener('click', showGmailSetup);
 elements.gmailConnectButton.addEventListener('click', () => void importFromGmail());
-elements.naverSetupButton.addEventListener('click', showNaverSetup);
 
 elements.filters.addEventListener('click', event => {
   const button = event.target.closest('[data-filter]');
@@ -1360,13 +1394,7 @@ elements.parcelList.addEventListener('click', event => {
   }
 });
 
-elements.bulkOpenButton.addEventListener('click', () => {
-  elements.bulkText.value = '';
-  state.bulkCandidates = [];
-  renderBulkCandidates();
-  openDialog(elements.bulkDialog);
-  elements.bulkText.focus();
-});
+elements.bulkOpenButton.addEventListener('click', () => openTextImport());
 elements.bulkCloseButton.addEventListener('click', () => closeDialog(elements.bulkDialog));
 elements.bulkCancelButton.addEventListener('click', () => closeDialog(elements.bulkDialog));
 elements.bulkText.addEventListener('input', updateBulkCandidates);
@@ -1406,6 +1434,7 @@ elements.detailOfficialLink.addEventListener('click', event => {
 
 render();
 updateTrackingHint();
+renderGmailAvailability();
 updateCloudPresentation();
 void initializeCloud();
 
