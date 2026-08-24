@@ -21,15 +21,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
       - name: Run behavior tests
-        run: npm test
+        run: |
+          node --check app.js
+          node --check cloud.js
+          node --check gmail.js
+          npm test
       - name: Stage static site
         run: |
           mkdir -p _site
-          cp index.html app.js lib.js styles.css _site/
+          cp index.html app.js cloud.js gmail.js lib.js styles.css supabase-config.js _site/
+      - name: Verify deploy artifact
+        run: |
+          test -f _site/index.html
+          test -f _site/app.js
+          test -f _site/cloud.js
+          test -f _site/gmail.js
+          test -f _site/lib.js
+          test -f _site/styles.css
+          test -f _site/supabase-config.js
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact
@@ -46,5 +59,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
-
+        uses: actions/deploy-pages@v5

@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101828">
   <meta name="description" content="운송장번호를 브라우저에 안전하게 모으고 각 택배사의 공식 배송조회로 연결하는 개인용 택배 대시보드">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://esm.sh https://accounts.google.com; connect-src 'self' https://esm.sh https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://gmail.googleapis.com; frame-src https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self' https://www.ds3211.co.kr https://www.lotteglogis.com">
   <title>택배허브 — 내 운송장 한 화면에</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260824-auth-mail-4">
 </head>
 <body>
   <div class="page-shell">
@@ -16,8 +17,10 @@
         <span><strong>택배허브</strong><small>PARCEL HUB</small></span>
       </a>
       <div class="header-actions">
+        <button class="button button-quiet" id="connectionsOpenButton" type="button">문자·메일</button>
         <button class="button button-quiet" id="importOpenButton" type="button">백업 가져오기</button>
         <button class="button button-quiet" id="exportButton" type="button">백업 내보내기</button>
+        <button class="button button-primary" id="accountOpenButton" type="button"><span id="accountButtonLabel">로그인</span></button>
       </div>
     </header>
 
@@ -26,7 +29,7 @@
         <div class="hero-copy">
           <p class="eyebrow">PERSONAL PARCEL DASHBOARD</p>
           <h1 id="pageTitle">내 운송장을<br><span>한 화면에.</span></h1>
-          <p class="hero-description">운송장번호를 모아 두고, 정확한 택배사를 선택한 다음 각사의 <strong>공식 배송조회</strong>로 바로 이동하세요. 이 앱은 배송 데이터를 흉내 내지 않습니다.</p>
+          <p class="hero-description">운송장번호를 모아 두고, 정확한 택배사를 선택한 다음 각사의 <strong>공식 배송조회</strong>로 바로 이동하세요. 로그인하면 내 목록을 다른 기기와 동기화할 수 있어요.</p>
           <div class="truth-grid" aria-label="서비스 범위 안내">
             <div><span class="truth-icon" aria-hidden="true">◎</span><p><strong>공식 정보 우선</strong><br>실제 배송 상태·이력은 택배사 공식 페이지에서 확인합니다.</p></div>
             <div><span class="truth-icon" aria-hidden="true">⌁</span><p><strong>번호만으로 추정 안 함</strong><br>국내 숫자 운송장은 택배사별 형식이 겹쳐 직접 선택이 정확합니다.</p></div>
@@ -34,7 +37,7 @@
         </div>
 
         <section class="add-card" aria-labelledby="addHeading">
-          <div class="section-label-row"><p class="eyebrow">ADD A PARCEL</p><span class="local-badge">이 브라우저에만 저장</span></div>
+          <div class="section-label-row"><p class="eyebrow">ADD A PARCEL</p><span class="local-badge" id="storageBadge">이 브라우저에만 저장</span></div>
           <h2 id="addHeading">새 운송장 등록</h2>
           <form id="trackingForm" novalidate>
             <label for="trackingInput">운송장번호</label>
@@ -82,6 +85,11 @@
         <div class="dashboard-heading">
           <div><p class="eyebrow">MY PARCELS</p><h2 id="dashboardHeading">내 택배 목록</h2></div>
           <p class="storage-state" id="storageState">이 브라우저에만 저장됨</p>
+        </div>
+
+        <div class="cloud-banner" id="cloudBanner" hidden>
+          <div><strong id="cloudBannerTitle">계정 동기화</strong><p id="cloudBannerDescription">로그인하면 이 브라우저의 택배 목록을 내 계정으로 안전하게 가져올 수 있어요.</p></div>
+          <button class="button button-quiet compact" id="syncNowButton" type="button" hidden>지금 동기화</button>
         </div>
 
         <div class="stats" aria-label="택배 요약">
@@ -189,9 +197,94 @@
     </form>
   </dialog>
 
+  <dialog class="modal" id="accountDialog" aria-labelledby="accountTitle">
+    <div class="modal-card account-card">
+      <div class="modal-header">
+        <div><p class="eyebrow">MY ACCOUNT</p><h2 id="accountTitle">내 계정</h2></div>
+        <button class="icon-button" id="accountCloseButton" type="button" aria-label="내 계정 닫기">×</button>
+      </div>
+
+      <section id="anonymousAccountPanel">
+        <p class="modal-intro">이메일 아이디와 비밀번호로 계정을 만들면 운송장 목록을 다른 기기에서도 이어서 관리할 수 있어요. 비밀번호는 이 사이트가 직접 보관하지 않습니다.</p>
+        <div class="auth-tabs" id="authModeTabs" role="tablist" aria-label="계정 방식">
+          <button class="auth-tab active" type="button" data-auth-mode="signin" role="tab" aria-selected="true">로그인</button>
+          <button class="auth-tab" type="button" data-auth-mode="signup" role="tab" aria-selected="false">회원가입</button>
+        </div>
+        <form id="authForm" novalidate>
+          <label for="authEmail">이메일 아이디</label>
+          <input id="authEmail" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" required>
+          <label for="authPassword">비밀번호</label>
+          <input id="authPassword" type="password" autocomplete="current-password" minlength="8" placeholder="8자 이상" required>
+          <div id="authPasswordConfirmRow" hidden>
+            <label for="authPasswordConfirm">비밀번호 확인</label>
+            <input id="authPasswordConfirm" type="password" autocomplete="new-password" minlength="8" placeholder="비밀번호를 한 번 더 입력">
+          </div>
+          <p class="auth-notice" id="authNotice" aria-live="polite"></p>
+          <div class="modal-actions auth-actions">
+            <button class="text-button" id="authResetButton" type="button">비밀번호를 잊었어요</button>
+            <button class="button button-primary" id="authSubmitButton" type="submit">로그인</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="signedInAccountPanel" hidden>
+        <div class="account-summary"><span class="account-avatar" aria-hidden="true">✓</span><div><strong id="accountEmail">로그인됨</strong><p>내 택배 목록은 계정별로 분리되어 저장됩니다.</p></div></div>
+        <div class="local-import-prompt" id="localImportPrompt" hidden>
+          <strong>이 브라우저의 기존 목록</strong>
+          <p id="localImportDescription"></p>
+          <div class="account-actions">
+            <button class="button button-secondary" id="localImportMergeButton" type="button">이 계정으로 가져오기</button>
+            <button class="button button-quiet" id="localImportDiscardButton" type="button">이 기기의 목록 지우기</button>
+          </div>
+        </div>
+        <div class="account-actions">
+          <button class="button button-secondary" id="accountSyncButton" type="button">지금 동기화</button>
+          <button class="button button-quiet" id="accountSignOutButton" type="button">로그아웃</button>
+        </div>
+        <p class="auth-notice" id="signedInNotice" aria-live="polite"></p>
+      </section>
+
+      <section id="passwordRecoveryPanel" hidden>
+        <p class="modal-intro">새 비밀번호를 설정하세요. 이 창을 닫기 전에 변경을 완료해 주세요.</p>
+        <form id="passwordRecoveryForm" novalidate>
+          <label for="newPassword">새 비밀번호</label>
+          <input id="newPassword" type="password" autocomplete="new-password" minlength="8" placeholder="8자 이상" required>
+          <label for="newPasswordConfirm">새 비밀번호 확인</label>
+          <input id="newPasswordConfirm" type="password" autocomplete="new-password" minlength="8" placeholder="새 비밀번호를 한 번 더 입력" required>
+          <p class="auth-notice" id="recoveryNotice" aria-live="polite"></p>
+          <div class="modal-actions"><button class="button button-primary" type="submit">새 비밀번호 저장</button></div>
+        </form>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="connectionsDialog" aria-labelledby="connectionsTitle">
+    <div class="modal-card modal-wide">
+      <div class="modal-header">
+        <div><p class="eyebrow">IMPORT SOURCES</p><h2 id="connectionsTitle">문자·메일에서 가져오기</h2></div>
+        <button class="icon-button" id="connectionsCloseButton" type="button" aria-label="문자와 메일 가져오기 닫기">×</button>
+      </div>
+      <p class="modal-intro">문자·메일 원문은 이 앱에 자동 저장하지 않고, 운송장 후보만 보여 준 뒤 직접 확인하게 해요. 휴대폰 번호만으로 모든 택배를 찾는 기능은 제공하지 않습니다.</p>
+      <div class="source-list">
+        <section class="source-card source-ready">
+          <div class="source-heading"><div><h3>iPhone 문자</h3><p>아이폰의 메시지함을 웹사이트가 자동으로 읽을 수는 없어요. 배송 문자를 길게 눌러 복사한 다음 여기 붙여넣으면 후보를 찾습니다.</p></div><span class="source-badge">바로 사용</span></div>
+          <button class="button button-secondary" id="iphoneImportButton" type="button">복사한 문자 붙여넣기</button>
+        </section>
+        <section class="source-card">
+          <div class="source-heading"><div><h3>Gmail 배송 메일</h3><p>Google 동의를 받은 뒤 최근 90일 중 조건과 맞는 메일 최대 25개에서 운송장 후보만 추출합니다. 메일 원문·비밀번호·장기 토큰은 저장하지 않아요.</p></div><span class="source-badge muted">설정 필요</span></div>
+          <div class="source-actions"><button class="button button-secondary" id="gmailConnectButton" type="button">Gmail에서 후보 찾기</button><button class="button button-quiet" id="gmailSetupButton" type="button">Gmail 연결 안내</button><button class="text-button" id="gmailManualButton" type="button">메일 복사해서 가져오기</button></div>
+        </section>
+        <section class="source-card">
+          <div class="source-heading"><div><h3>네이버 메일</h3><p>일반 네이버 비밀번호는 받지 않습니다. 외부 메일 연결을 쓸 때는 사용자가 만든 앱 비밀번호만 일회성으로 사용해야 해요.</p></div><span class="source-badge muted">설정 필요</span></div>
+          <div class="source-actions"><button class="button button-quiet" id="naverSetupButton" type="button">네이버 메일 연결 안내</button><button class="text-button" id="naverManualButton" type="button">메일 복사해서 가져오기</button></div>
+        </section>
+      </div>
+      <p class="connection-notice" id="connectionNotice" aria-live="polite"></p>
+    </div>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <noscript><p class="noscript">택배허브를 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=20260824-auth-mail-4"></script>
 </body>
 </html>
-

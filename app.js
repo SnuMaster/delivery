@@ -9,9 +9,22 @@ import {
   normalizeSavedItem,
   normalizeTrackingNumber,
   validateTrackingNumber,
-} from './lib.js';
+} from './lib.js?v=20260824-auth-mail-4';
+import {
+  cloudEnabled,
+  getSupabaseClient,
+  isNewer,
+  parcelToRow,
+  rowToParcel,
+  rowToTombstone,
+  tombstoneToRow,
+} from './cloud.js?v=20260824-auth-mail-4';
+import { findGmailTrackingCandidates } from './gmail.js?v=20260824-auth-mail-4';
+import { GMAIL_CONFIG } from './supabase-config.js?v=20260824-auth-mail-4';
 
 const STORAGE_KEY = 'parcel-hub.items.v3';
+const TOMBSTONE_STORAGE_KEY = 'parcel-hub.deleted.v1';
+const CACHE_OWNER_KEY = 'parcel-hub.cache-owner.v1';
 const LEGACY_STORAGE_KEYS = ['delivery.items.v2'];
 const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 
@@ -23,8 +36,11 @@ const elements = {
   carrierInput: $('carrierInput'),
   memoInput: $('memoInput'),
   bulkOpenButton: $('bulkOpenButton'),
+  connectionsOpenButton: $('connectionsOpenButton'),
   importOpenButton: $('importOpenButton'),
   exportButton: $('exportButton'),
+  accountOpenButton: $('accountOpenButton'),
+  accountButtonLabel: $('accountButtonLabel'),
   parcelList: $('parcelList'),
   emptyState: $('emptyState'),
   filters: $('filters'),
@@ -33,6 +49,11 @@ const elements = {
   statNeedsCheck: $('statNeedsCheck'),
   statReceived: $('statReceived'),
   storageState: $('storageState'),
+  storageBadge: $('storageBadge'),
+  cloudBanner: $('cloudBanner'),
+  cloudBannerTitle: $('cloudBannerTitle'),
+  cloudBannerDescription: $('cloudBannerDescription'),
+  syncNowButton: $('syncNowButton'),
   bulkDialog: $('bulkDialog'),
   bulkCloseButton: $('bulkCloseButton'),
   bulkCancelButton: $('bulkCancelButton'),
@@ -58,14 +79,62 @@ const elements = {
   detailLinkHint: $('detailLinkHint'),
   detailCopyButton: $('detailCopyButton'),
   detailDeleteButton: $('detailDeleteButton'),
+  accountDialog: $('accountDialog'),
+  accountCloseButton: $('accountCloseButton'),
+  anonymousAccountPanel: $('anonymousAccountPanel'),
+  signedInAccountPanel: $('signedInAccountPanel'),
+  passwordRecoveryPanel: $('passwordRecoveryPanel'),
+  authModeTabs: $('authModeTabs'),
+  authForm: $('authForm'),
+  authEmail: $('authEmail'),
+  authPassword: $('authPassword'),
+  authPasswordConfirmRow: $('authPasswordConfirmRow'),
+  authPasswordConfirm: $('authPasswordConfirm'),
+  authSubmitButton: $('authSubmitButton'),
+  authResetButton: $('authResetButton'),
+  authNotice: $('authNotice'),
+  accountEmail: $('accountEmail'),
+  localImportPrompt: $('localImportPrompt'),
+  localImportDescription: $('localImportDescription'),
+  localImportMergeButton: $('localImportMergeButton'),
+  localImportDiscardButton: $('localImportDiscardButton'),
+  accountSyncButton: $('accountSyncButton'),
+  accountSignOutButton: $('accountSignOutButton'),
+  signedInNotice: $('signedInNotice'),
+  passwordRecoveryForm: $('passwordRecoveryForm'),
+  newPassword: $('newPassword'),
+  newPasswordConfirm: $('newPasswordConfirm'),
+  recoveryNotice: $('recoveryNotice'),
+  connectionsDialog: $('connectionsDialog'),
+  connectionsCloseButton: $('connectionsCloseButton'),
+  iphoneImportButton: $('iphoneImportButton'),
+  gmailSetupButton: $('gmailSetupButton'),
+  gmailConnectButton: $('gmailConnectButton'),
+  gmailManualButton: $('gmailManualButton'),
+  naverSetupButton: $('naverSetupButton'),
+  naverManualButton: $('naverManualButton'),
+  connectionNotice: $('connectionNotice'),
   toast: $('toast'),
 };
 
 const state = {
   items: loadItems(),
+  deletedItems: loadDeletedItems(),
   filter: 'all',
   bulkCandidates: [],
   pendingImport: [],
+};
+
+const cloud = {
+  client: null,
+  initialization: null,
+  user: null,
+  authMode: 'signin',
+  recoveryMode: false,
+  requiresLocalImportDecision: false,
+  status: 'local',
+  syncInFlight: false,
+  syncTimer: null,
 };
 
 function createId() {
@@ -100,16 +169,501 @@ function loadItems() {
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 
-function persist() {
+function normalizeTombstone(value) {
+  const validation = validateTrackingNumber(value?.tracking);
+  const updatedAt = value?.updatedAt || value?.deletedAt;
+  if (!validation.valid || Number.isNaN(Date.parse(updatedAt))) return null;
+  return {
+    tracking: validation.tracking,
+    deletedAt: value?.deletedAt || updatedAt,
+    updatedAt,
+  };
+}
+
+function loadDeletedItems() {
+  const seen = new Set();
+  return (readStoredArray(TOMBSTONE_STORAGE_KEY) || [])
+    .map(normalizeTombstone)
+    .filter(item => {
+      if (!item || seen.has(item.tracking)) return false;
+      seen.add(item.tracking);
+      return true;
+    })
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+}
+
+function clearTombstones(trackings) {
+  const restored = new Set(trackings);
+  state.deletedItems = state.deletedItems.filter(item => !restored.has(item.tracking));
+}
+
+function nextMutationTimestamp(previous = '') {
+  const previousTime = Date.parse(previous);
+  const now = Date.now();
+  return new Date(Number.isNaN(previousTime) ? now : Math.max(now, previousTime + 1)).toISOString();
+}
+
+function markDeleted(tracking, previousUpdatedAt = '') {
+  const timestamp = nextMutationTimestamp(previousUpdatedAt);
+  state.deletedItems = [
+    { tracking, deletedAt: timestamp, updatedAt: timestamp },
+    ...state.deletedItems.filter(item => item.tracking !== tracking),
+  ];
+}
+
+function getCacheOwner() {
+  try {
+    return localStorage.getItem(CACHE_OWNER_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function setCacheOwner(userId) {
+  try {
+    localStorage.setItem(CACHE_OWNER_KEY, userId);
+  } catch {
+    // Local storage failures are reported by persist() when a parcel changes.
+  }
+}
+
+function clearLocalAccountCache() {
+  state.items = [];
+  state.deletedItems = [];
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(TOMBSTONE_STORAGE_KEY);
+    localStorage.removeItem(CACHE_OWNER_KEY);
+  } catch {
+    // The in-memory copy is still cleared before a different account can use it.
+  }
+  render();
+}
+
+function prepareCacheForUser(user) {
+  const cacheOwner = getCacheOwner();
+  const hasLocalData = state.items.length > 0 || state.deletedItems.length > 0;
+  cloud.requiresLocalImportDecision = false;
+
+  if (cacheOwner && cacheOwner !== user.id) {
+    clearLocalAccountCache();
+    setCacheOwner(user.id);
+    return false;
+  }
+  if (!cacheOwner && hasLocalData) {
+    cloud.requiresLocalImportDecision = true;
+    cloud.status = 'awaiting-choice';
+    return true;
+  }
+  setCacheOwner(user.id);
+  return false;
+}
+
+function persist({ sync = true } = {}) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, items: state.items }));
-    elements.storageState.textContent = '이 브라우저에만 저장됨';
+    localStorage.setItem(TOMBSTONE_STORAGE_KEY, JSON.stringify({ version: 1, items: state.deletedItems }));
+    if (cloud.user && sync) scheduleCloudSync();
+    else updateCloudPresentation();
     return true;
   } catch {
     elements.storageState.textContent = '저장 공간 오류';
+    elements.storageBadge.textContent = '저장 오류';
     showToast('브라우저 저장 공간에 기록하지 못했어요. 먼저 백업을 내려받아 주세요.');
     return false;
   }
+}
+
+function getAuthRedirectUrl() {
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
+function shortAccountLabel(email = '') {
+  const [localPart] = String(email).split('@');
+  return localPart && localPart.length <= 14 ? localPart : '내 계정';
+}
+
+function updateCloudPresentation() {
+  const signedIn = Boolean(cloud.user);
+  const status = cloud.status;
+  const textByStatus = {
+    local: '이 브라우저에만 저장됨',
+    unavailable: '계정 서비스 연결 오류',
+    pending: '계정 동기화 대기 중',
+    'awaiting-choice': '기존 목록 확인 필요',
+    syncing: '계정에 동기화 중…',
+    synced: '내 계정에 동기화됨',
+    error: '동기화 오류 · 이 브라우저에는 저장됨',
+  };
+
+  elements.accountButtonLabel.textContent = signedIn ? shortAccountLabel(cloud.user.email) : '로그인';
+  elements.storageState.textContent = textByStatus[status] || textByStatus.local;
+  elements.storageBadge.textContent = signedIn
+    ? status === 'synced' ? '계정에 저장' : status === 'awaiting-choice' ? '목록 확인 필요' : '계정 동기화 중'
+    : '이 브라우저에만 저장';
+  elements.storageBadge.classList.toggle('cloud', signedIn);
+
+  elements.cloudBanner.hidden = false;
+  elements.syncNowButton.hidden = !signedIn || cloud.requiresLocalImportDecision;
+  if (!signedIn) {
+    elements.cloudBannerTitle.textContent = cloudEnabled ? '계정 동기화' : '브라우저 저장';
+    elements.cloudBannerDescription.textContent = cloudEnabled
+      ? '로그인하면 이 브라우저의 택배 목록을 내 계정으로 안전하게 가져올 수 있어요.'
+      : '현재는 이 브라우저에만 저장됩니다. 백업 파일도 함께 보관해 주세요.';
+    return;
+  }
+
+  elements.cloudBannerTitle.textContent = status === 'awaiting-choice'
+    ? '기존 브라우저 목록 확인'
+    : status === 'error' ? '동기화에 다시 연결할 수 있어요' : '내 계정으로 동기화 중';
+  elements.cloudBannerDescription.textContent = status === 'awaiting-choice'
+    ? '다른 계정으로 옮기기 전에 기존 목록을 이 계정에 가져올지 선택해 주세요.'
+    : status === 'error'
+    ? '인터넷 연결을 확인한 뒤 “지금 동기화”를 누르세요. 이 기기의 목록은 그대로 남아 있어요.'
+    : `${cloud.user.email} 계정에만 저장됩니다. 다른 기기에서 로그인하면 같은 목록을 볼 수 있어요.`;
+}
+
+function setAuthMode(mode) {
+  cloud.authMode = mode === 'signup' ? 'signup' : 'signin';
+  const signingUp = cloud.authMode === 'signup';
+  elements.authPasswordConfirmRow.hidden = !signingUp;
+  elements.authPassword.autocomplete = signingUp ? 'new-password' : 'current-password';
+  elements.authPasswordConfirm.required = signingUp;
+  elements.authSubmitButton.textContent = signingUp ? '회원가입' : '로그인';
+  elements.authResetButton.hidden = signingUp;
+  elements.authNotice.textContent = signingUp
+    ? '가입 후 이메일 인증 링크를 열면 계정 동기화를 시작할 수 있어요.'
+    : '';
+  elements.authModeTabs.querySelectorAll('[data-auth-mode]').forEach(button => {
+    const active = button.dataset.authMode === cloud.authMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+}
+
+function showAuthNotice(message, target = elements.authNotice) {
+  target.textContent = message;
+}
+
+function readableAuthError(error, fallback) {
+  const message = String(error?.message || '').toLowerCase();
+  if (message.includes('invalid login') || message.includes('invalid credentials')) return '이메일 아이디 또는 비밀번호를 다시 확인해 주세요.';
+  if (message.includes('email not confirmed')) return '이메일 인증을 먼저 완료해 주세요.';
+  if (message.includes('rate limit') || message.includes('too many')) return '잠시 후 다시 시도해 주세요.';
+  if (message.includes('password')) return '비밀번호 조건을 확인해 주세요.';
+  if (message.includes('redirect')) return '로그인 설정이 아직 완료되지 않았어요. 잠시 후 다시 시도해 주세요.';
+  return fallback;
+}
+
+async function initializeCloud() {
+  if (cloud.initialization) return cloud.initialization;
+  cloud.initialization = (async () => {
+    if (!cloudEnabled) {
+      cloud.status = 'unavailable';
+      updateCloudPresentation();
+      return null;
+    }
+    try {
+      cloud.client = await getSupabaseClient();
+      const { data, error } = await cloud.client.auth.getSession();
+      if (error) throw error;
+      cloud.user = data.session?.user ?? null;
+      cloud.status = cloud.user ? 'pending' : 'local';
+      const needsLocalImportDecision = cloud.user && prepareCacheForUser(cloud.user);
+      cloud.client.auth.onAuthStateChange((event, session) => {
+        cloud.user = session?.user ?? null;
+        if (event === 'PASSWORD_RECOVERY') {
+          cloud.recoveryMode = true;
+          openDialog(elements.accountDialog);
+        }
+        if (event === 'SIGNED_OUT') {
+          cloud.status = 'local';
+          cloud.requiresLocalImportDecision = false;
+        }
+        if (cloud.user && event === 'SIGNED_IN') {
+          const needsDecision = prepareCacheForUser(cloud.user);
+          if (needsDecision) {
+            openDialog(elements.accountDialog);
+          } else {
+            cloud.status = 'pending';
+            window.setTimeout(() => void syncCloud(), 0);
+          }
+        }
+        updateCloudPresentation();
+        updateAccountPanels();
+      });
+      updateCloudPresentation();
+      updateAccountPanels();
+      if (needsLocalImportDecision) openDialog(elements.accountDialog);
+      else if (cloud.user) window.setTimeout(() => void syncCloud(), 0);
+      return cloud.client;
+    } catch {
+      cloud.client = null;
+      cloud.status = 'unavailable';
+      cloud.initialization = null;
+      updateCloudPresentation();
+      return null;
+    }
+  })();
+  return cloud.initialization;
+}
+
+function updateAccountPanels() {
+  const signedIn = Boolean(cloud.user);
+  elements.anonymousAccountPanel.hidden = signedIn || cloud.recoveryMode;
+  elements.signedInAccountPanel.hidden = !signedIn || cloud.recoveryMode;
+  elements.passwordRecoveryPanel.hidden = !cloud.recoveryMode;
+  if (signedIn) {
+    elements.accountEmail.textContent = cloud.user.email || '내 계정';
+    elements.localImportPrompt.hidden = !cloud.requiresLocalImportDecision;
+    elements.localImportDescription.textContent = `${state.items.length}개 운송장${state.deletedItems.length ? `과 ${state.deletedItems.length}개 삭제 기록` : ''}이 이 브라우저에 남아 있어요. 이 계정으로 가져올지 먼저 선택해 주세요.`;
+    elements.accountSyncButton.disabled = cloud.requiresLocalImportDecision;
+    elements.signedInNotice.textContent = cloud.requiresLocalImportDecision
+      ? '기존 목록을 확인한 뒤 동기화를 시작합니다.'
+      : cloud.status === 'error'
+      ? '동기화하지 못했어요. 이 기기의 목록은 그대로 남아 있어요.'
+      : '';
+  } else {
+    elements.localImportPrompt.hidden = true;
+    elements.accountSyncButton.disabled = false;
+  }
+}
+
+function sortParcels(items) {
+  return [...items].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+}
+
+function parcelRecord(item) {
+  return { kind: 'parcel', tracking: item.tracking, updatedAt: item.updatedAt, value: item };
+}
+
+function tombstoneRecord(item) {
+  return { kind: 'tombstone', tracking: item.tracking, updatedAt: item.updatedAt, value: item };
+}
+
+function recordFromRow(row, index) {
+  if (row.deleted_at) {
+    const item = normalizeTombstone(rowToTombstone(row));
+    return item ? tombstoneRecord(item) : null;
+  }
+  const item = normalizeSavedItem(rowToParcel(row), `cloud-${index}`);
+  return item ? parcelRecord(item) : null;
+}
+
+function newestRecordByTracking(records) {
+  const result = new Map();
+  for (const record of records) {
+    const current = result.get(record.tracking);
+    if (!current || isNewer(record, current)) result.set(record.tracking, record);
+  }
+  return result;
+}
+
+async function syncCloud({ announce = false } = {}) {
+  const client = await initializeCloud();
+  const user = cloud.user;
+  if (!client || !user || cloud.syncInFlight || cloud.requiresLocalImportDecision) return false;
+
+  cloud.syncInFlight = true;
+  cloud.status = 'syncing';
+  updateCloudPresentation();
+  try {
+    const { data: rows, error: readError } = await client
+      .from('parcels')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+    if (readError) throw readError;
+
+    const remoteRecords = (rows || []).map(recordFromRow).filter(Boolean);
+    const localRecords = [
+      ...state.items.map(parcelRecord),
+      ...state.deletedItems.map(tombstoneRecord),
+    ];
+    const remoteByTracking = newestRecordByTracking(remoteRecords);
+    const localByTracking = newestRecordByTracking(localRecords);
+    const finalByTracking = new Map();
+    const writeRecords = [];
+
+    for (const tracking of new Set([...localByTracking.keys(), ...remoteByTracking.keys()])) {
+      const localRecord = localByTracking.get(tracking);
+      const remoteRecord = remoteByTracking.get(tracking);
+      const localWins = localRecord && (!remoteRecord || isNewer(localRecord, remoteRecord));
+      const winner = localWins ? localRecord : remoteRecord;
+      if (!winner) continue;
+      finalByTracking.set(tracking, winner);
+      if (localWins) writeRecords.push(winner);
+    }
+
+    if (writeRecords.length) {
+      const { data: writtenRows, error: writeError } = await client
+        .from('parcels')
+        .upsert(writeRecords.map(record => (
+          record.kind === 'parcel'
+            ? parcelToRow(record.value, user.id)
+            : tombstoneToRow(record.value, user.id)
+        )), { onConflict: 'user_id,tracking_number' })
+        .select('*');
+      if (writeError) throw writeError;
+      for (const [index, row] of (writtenRows || []).entries()) {
+        const record = recordFromRow(row, index);
+        if (record) finalByTracking.set(record.tracking, record);
+      }
+    }
+
+    const finalRecords = [...finalByTracking.values()];
+    state.items = sortParcels(finalRecords.filter(record => record.kind === 'parcel').map(record => record.value));
+    state.deletedItems = finalRecords
+      .filter(record => record.kind === 'tombstone')
+      .map(record => record.value)
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+    persist({ sync: false });
+    setCacheOwner(user.id);
+    render();
+    cloud.status = 'synced';
+    updateCloudPresentation();
+    updateAccountPanels();
+    if (announce) showToast('내 계정에 동기화했어요.');
+    return true;
+  } catch {
+    cloud.status = 'error';
+    updateCloudPresentation();
+    updateAccountPanels();
+    if (announce) showToast('동기화하지 못했어요. 인터넷 연결을 확인해 주세요.');
+    return false;
+  } finally {
+    cloud.syncInFlight = false;
+  }
+}
+
+function scheduleCloudSync() {
+  if (!cloud.user || cloud.syncInFlight || cloud.requiresLocalImportDecision) return;
+  cloud.status = 'pending';
+  updateCloudPresentation();
+  window.clearTimeout(cloud.syncTimer);
+  cloud.syncTimer = window.setTimeout(() => void syncCloud(), 700);
+}
+
+async function openAccount() {
+  await initializeCloud();
+  cloud.recoveryMode = false;
+  updateAccountPanels();
+  setAuthMode(cloud.authMode);
+  openDialog(elements.accountDialog);
+  if (!cloud.user) elements.authEmail.focus();
+}
+
+async function submitAuth(event) {
+  event.preventDefault();
+  const client = await initializeCloud();
+  if (!client) return showAuthNotice('계정 서비스에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.');
+
+  const email = elements.authEmail.value.trim();
+  const password = elements.authPassword.value;
+  if (!email || !password) return showAuthNotice('이메일 아이디와 비밀번호를 입력해 주세요.');
+  if (password.length < 8) return showAuthNotice('비밀번호는 8자 이상으로 만들어 주세요.');
+  if (cloud.authMode === 'signup' && password !== elements.authPasswordConfirm.value) {
+    return showAuthNotice('비밀번호 확인이 일치하지 않아요.');
+  }
+
+  elements.authSubmitButton.disabled = true;
+  try {
+    if (cloud.authMode === 'signup') {
+      const { data, error } = await client.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: getAuthRedirectUrl() },
+      });
+      if (error) throw error;
+      if (data.session) {
+        showAuthNotice('계정을 만들고 로그인했어요. 목록을 동기화하는 중이에요.');
+      } else {
+        showAuthNotice('인증 메일을 보냈어요. 메일의 링크를 열면 로그인할 수 있어요.');
+      }
+      return;
+    }
+
+    const { error } = await client.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    showAuthNotice('로그인했어요. 목록을 동기화하는 중이에요.');
+  } catch (error) {
+    showAuthNotice(readableAuthError(error, '로그인 또는 회원가입을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.'));
+  } finally {
+    elements.authSubmitButton.disabled = false;
+  }
+}
+
+async function requestPasswordReset() {
+  const client = await initializeCloud();
+  const email = elements.authEmail.value.trim();
+  if (!client) return showAuthNotice('계정 서비스에 연결하지 못했어요.');
+  if (!email) return showAuthNotice('비밀번호를 재설정할 이메일 아이디를 먼저 입력해 주세요.');
+  try {
+    const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: getAuthRedirectUrl() });
+    if (error) throw error;
+    showAuthNotice('가입 여부와 관계없이, 가능한 경우 재설정 메일을 보냈어요. 받은편지함을 확인해 주세요.');
+  } catch (error) {
+    showAuthNotice(readableAuthError(error, '재설정 메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요.'));
+  }
+}
+
+async function updatePassword(event) {
+  event.preventDefault();
+  const client = await initializeCloud();
+  const password = elements.newPassword.value;
+  if (!client) return showAuthNotice('계정 서비스에 연결하지 못했어요.', elements.recoveryNotice);
+  if (password.length < 8) return showAuthNotice('비밀번호는 8자 이상으로 만들어 주세요.', elements.recoveryNotice);
+  if (password !== elements.newPasswordConfirm.value) return showAuthNotice('비밀번호 확인이 일치하지 않아요.', elements.recoveryNotice);
+  try {
+    const { error } = await client.auth.updateUser({ password });
+    if (error) throw error;
+    elements.recoveryNotice.textContent = '새 비밀번호를 저장했어요.';
+    cloud.recoveryMode = false;
+    elements.newPassword.value = '';
+    elements.newPasswordConfirm.value = '';
+    updateAccountPanels();
+  } catch (error) {
+    showAuthNotice(readableAuthError(error, '새 비밀번호를 저장하지 못했어요.'), elements.recoveryNotice);
+  }
+}
+
+async function signOut() {
+  const client = await initializeCloud();
+  if (!client) return;
+  try {
+    if (!cloud.requiresLocalImportDecision && cloud.status !== 'synced' && !(await syncCloud())) {
+      elements.signedInNotice.textContent = '아직 동기화하지 못했어요. 목록을 잃지 않도록 인터넷 연결을 확인하거나 백업한 뒤 다시 시도해 주세요.';
+      return;
+    }
+    const { error } = await client.auth.signOut();
+    if (error) throw error;
+    clearLocalAccountCache();
+    closeDialog(elements.accountDialog);
+    showToast('로그아웃했어요. 이 기기의 목록은 지웠고, 동기화된 목록은 내 계정에 남아 있어요.');
+  } catch {
+    elements.signedInNotice.textContent = '로그아웃하지 못했어요. 잠시 후 다시 시도해 주세요.';
+  }
+}
+
+function importLocalCacheIntoAccount() {
+  if (!cloud.user || !cloud.requiresLocalImportDecision) return;
+  cloud.requiresLocalImportDecision = false;
+  setCacheOwner(cloud.user.id);
+  cloud.status = 'pending';
+  updateCloudPresentation();
+  updateAccountPanels();
+  void syncCloud({ announce: true });
+}
+
+function discardLocalCacheAndLoadAccount() {
+  if (!cloud.user || !cloud.requiresLocalImportDecision) return;
+  cloud.requiresLocalImportDecision = false;
+  clearLocalAccountCache();
+  setCacheOwner(cloud.user.id);
+  cloud.status = 'pending';
+  updateCloudPresentation();
+  updateAccountPanels();
+  void syncCloud({ announce: true });
 }
 
 function escapeHtml(value = '') {
@@ -240,7 +794,8 @@ function createItem({ tracking, carrier = '', memo = '', managementStatus = 'nee
   if (!validation.valid) return { error: validation.reason };
   if (state.items.some(item => item.tracking === validation.tracking)) return { error: '이미 목록에 있는 운송장번호예요.' };
 
-  const now = new Date().toISOString();
+  const tombstone = state.deletedItems.find(item => item.tracking === validation.tracking);
+  const now = nextMutationTimestamp(tombstone?.updatedAt);
   return {
     item: {
       id: createId(),
@@ -274,6 +829,7 @@ function addSingleTracking() {
   if (result.error) return showToast(result.error);
 
   state.items.unshift(result.item);
+  clearTombstones([result.item.tracking]);
   persist();
   render();
   elements.trackingForm.reset();
@@ -342,6 +898,61 @@ function openPostTracking(item) {
   form.remove();
 }
 
+function openTextImport(sourceLabel = '') {
+  closeDialog(elements.connectionsDialog);
+  elements.bulkText.value = '';
+  state.bulkCandidates = [];
+  renderBulkCandidates();
+  openDialog(elements.bulkDialog);
+  elements.bulkText.focus();
+  if (sourceLabel) showToast(`${sourceLabel} 내용을 붙여넣으면 운송장 후보만 찾아드려요.`);
+}
+
+function showGmailSetup() {
+  elements.connectionNotice.textContent = 'Gmail 자동 연결은 Google 동의 화면과 이 사이트용 OAuth 설정이 필요한 기능이에요. Google Cloud에서 Gmail API와 웹용 Client ID를 만들고, 허용된 JavaScript 원본에 https://snumaster.github.io 를 등록한 뒤 공개 Client ID만 설정하면 됩니다. Gmail 비밀번호·Client secret·장기 토큰은 이 사이트에 넣지 않아요.';
+}
+
+async function importFromGmail() {
+  if (!cloud.user) {
+    closeDialog(elements.connectionsDialog);
+    await openAccount();
+    showAuthNotice('Gmail에서 후보를 찾으려면 먼저 택배허브 계정에 로그인해 주세요.');
+    return;
+  }
+  if (!GMAIL_CONFIG.clientId) {
+    showGmailSetup();
+    return;
+  }
+
+  const originalLabel = elements.gmailConnectButton.textContent;
+  elements.gmailConnectButton.disabled = true;
+  elements.gmailConnectButton.textContent = 'Gmail 확인 중…';
+  try {
+    const result = await findGmailTrackingCandidates({
+      clientId: GMAIL_CONFIG.clientId,
+      existingNumbers: state.items.map(item => item.tracking),
+    });
+    state.bulkCandidates = result.candidates;
+    renderBulkCandidates();
+    closeDialog(elements.connectionsDialog);
+    openDialog(elements.bulkDialog);
+    elements.bulkText.value = '';
+    elements.bulkText.focus();
+    showToast(result.candidates.length
+      ? `조건과 맞는 Gmail 메일 ${result.messagesScanned}개에서 ${result.candidates.length}개 후보를 찾았어요.`
+      : `조건과 맞는 Gmail 메일 ${result.messagesScanned}개를 확인했지만 새 운송장 후보는 없어요.`);
+  } catch (error) {
+    elements.connectionNotice.textContent = String(error?.message || 'Gmail을 읽지 못했어요. 잠시 후 다시 시도해 주세요.');
+  } finally {
+    elements.gmailConnectButton.disabled = false;
+    elements.gmailConnectButton.textContent = originalLabel;
+  }
+}
+
+function showNaverSetup() {
+  elements.connectionNotice.textContent = '네이버 메일은 일반 비밀번호를 절대 입력하면 안 돼요. 외부 메일 연결을 쓰려면 네이버에서 IMAP을 켜고 앱 비밀번호를 따로 만든 뒤, 일회성 보안 연결을 설정해야 해요. 그전에는 메일을 복사해 가져올 수 있어요.';
+}
+
 function openDetail(item) {
   elements.detailDialog.dataset.id = item.id;
   elements.detailTracking.value = item.tracking;
@@ -381,7 +992,7 @@ function saveDetail(event) {
   item.carrierOrigin = item.carrier === newCarrier ? 'manual' : 'manual';
   item.memo = elements.detailMemo.value.trim().slice(0, 240);
   item.managementStatus = elements.detailStatus.value === 'received' ? 'received' : 'needs-check';
-  item.updatedAt = new Date().toISOString();
+  item.updatedAt = nextMutationTimestamp(item.updatedAt);
   persist();
   render();
   closeDialog(elements.detailDialog);
@@ -393,6 +1004,7 @@ function removeItem(id) {
   if (!item) return;
   if (!window.confirm(`${item.tracking}을(를) 목록에서 삭제할까요?`)) return;
   state.items = state.items.filter(candidate => candidate.id !== id);
+  markDeleted(item.tracking, item.updatedAt);
   persist();
   render();
   closeDialog(elements.detailDialog);
@@ -448,6 +1060,7 @@ function addBulkCandidates() {
   }
   if (!additions.length) return showToast('새로 추가할 운송장번호가 없어요.');
   state.items.unshift(...additions);
+  clearTombstones(additions.map(item => item.tracking));
   persist();
   render();
   closeDialog(elements.bulkDialog);
@@ -510,7 +1123,17 @@ async function readImportFile() {
 function commitImport() {
   const { added } = mergeUniqueItems(state.items, state.pendingImport);
   if (!added.length) return showToast('새로 추가할 운송장번호가 없어요.');
-  state.items.unshift(...added.map(item => ({ ...item, id: createId(), carrierOrigin: 'imported' })));
+  const restoredItems = added.map(item => {
+    const tombstone = state.deletedItems.find(candidate => candidate.tracking === item.tracking);
+    return {
+      ...item,
+      id: createId(),
+      carrierOrigin: 'imported',
+      updatedAt: nextMutationTimestamp(tombstone?.updatedAt),
+    };
+  });
+  state.items.unshift(...restoredItems);
+  clearTombstones(restoredItems.map(item => item.tracking));
   persist();
   render();
   closeDialog(elements.importDialog);
@@ -522,6 +1145,36 @@ elements.trackingForm.addEventListener('submit', event => {
   addSingleTracking();
 });
 elements.trackingInput.addEventListener('input', updateTrackingHint);
+
+elements.accountOpenButton.addEventListener('click', () => void openAccount());
+elements.accountCloseButton.addEventListener('click', () => closeDialog(elements.accountDialog));
+elements.authModeTabs.addEventListener('click', event => {
+  const button = event.target.closest('[data-auth-mode]');
+  if (!button) return;
+  setAuthMode(button.dataset.authMode);
+});
+elements.authForm.addEventListener('submit', event => void submitAuth(event));
+elements.authResetButton.addEventListener('click', () => void requestPasswordReset());
+elements.passwordRecoveryForm.addEventListener('submit', event => void updatePassword(event));
+elements.localImportMergeButton.addEventListener('click', importLocalCacheIntoAccount);
+elements.localImportDiscardButton.addEventListener('click', discardLocalCacheAndLoadAccount);
+elements.accountSyncButton.addEventListener('click', () => void syncCloud({ announce: true }));
+elements.syncNowButton.addEventListener('click', () => void syncCloud({ announce: true }));
+elements.accountSignOutButton.addEventListener('click', () => void signOut());
+
+elements.connectionsOpenButton.addEventListener('click', () => {
+  elements.connectionNotice.textContent = cloud.user
+    ? '연동에서 찾은 번호도 추가 전에 직접 확인하게 됩니다.'
+    : '계정에 로그인하면 가져온 목록도 다른 기기와 동기화할 수 있어요.';
+  openDialog(elements.connectionsDialog);
+});
+elements.connectionsCloseButton.addEventListener('click', () => closeDialog(elements.connectionsDialog));
+elements.iphoneImportButton.addEventListener('click', () => openTextImport('아이폰에서 복사한 문자'));
+elements.gmailManualButton.addEventListener('click', () => openTextImport('Gmail 메일'));
+elements.naverManualButton.addEventListener('click', () => openTextImport('네이버 메일'));
+elements.gmailSetupButton.addEventListener('click', showGmailSetup);
+elements.gmailConnectButton.addEventListener('click', () => void importFromGmail());
+elements.naverSetupButton.addEventListener('click', showNaverSetup);
 
 elements.filters.addEventListener('click', event => {
   const button = event.target.closest('[data-filter]');
@@ -541,7 +1194,7 @@ elements.parcelList.addEventListener('click', event => {
   if (action === 'delete') return removeItem(item.id);
   if (action === 'toggle') {
     item.managementStatus = item.managementStatus === 'received' ? 'needs-check' : 'received';
-    item.updatedAt = new Date().toISOString();
+    item.updatedAt = nextMutationTimestamp(item.updatedAt);
     persist();
     render();
     return showToast(item.managementStatus === 'received' ? '받음으로 표시했어요.' : '공식 조회 필요로 표시했어요.');
@@ -599,4 +1252,5 @@ elements.detailOfficialLink.addEventListener('click', event => {
 
 render();
 updateTrackingHint();
-
+updateCloudPresentation();
+void initializeCloud();

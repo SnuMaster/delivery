@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CARRIERS,
   buildTrackingUrl,
   detectCarrier,
   extractTrackingCandidates,
@@ -59,6 +60,14 @@ test('exports only safe, encoded official tracking links', () => {
   assert.equal(buildTrackingUrl('not-a-carrier', '680405450931'), '');
 });
 
+test('uses the official POST flow for carriers that do not accept a reliable GET query', () => {
+  assert.equal(CARRIERS.lotte.trackingMethod, 'post');
+  assert.equal(CARRIERS.lotte.trackingField, 'InvNo');
+  assert.match(CARRIERS.lotte.trackingUrl('680405450931'), /invoiceView$/);
+  assert.equal(CARRIERS.daesin.trackingMethod, 'post');
+  assert.equal(CARRIERS.daesin.trackingField, 'billno');
+});
+
 test('merges backups by normalized tracking number', () => {
   const current = [{ id: 'old', tracking: '680405450931', createdAt: '2026-01-01T00:00:00.000Z' }];
   const incoming = [
@@ -86,4 +95,3 @@ test('migrates legacy saved records safely and drops unknown carrier codes', () 
   assert.equal(restored.memo, 'old memo');
   assert.equal(normalizeSavedItem({ tracking: 'not a tracking number' }, 'bad'), null);
 });
-

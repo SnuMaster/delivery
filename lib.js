@@ -21,7 +21,11 @@ export const CARRIERS = Object.freeze({
   lotte: {
     label: '롯데택배',
     aliases: ['롯데택배', '롯데글로벌로지스', 'lotte global logistics'],
-    trackingUrl: number => `https://www.lotteglogis.com/home/reservation/tracking/linkView?InvNo=${encodeURIComponent(number)}`,
+    // The official lookup currently submits a POST form; the former GET link
+    // only opens a shell page and does not reliably pass the invoice number.
+    trackingMethod: 'post',
+    trackingField: 'InvNo',
+    trackingUrl: () => 'https://www.lotteglogis.com/home/reservation/tracking/invoiceView',
   },
   logen: {
     label: '로젠택배',
@@ -254,4 +258,3 @@ export function mergeUniqueItems(currentItems, incomingItems) {
 
   return { added, skipped };
 }
-
