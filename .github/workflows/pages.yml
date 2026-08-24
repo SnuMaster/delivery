@@ -32,6 +32,8 @@ jobs:
           node --check supabase/functions/iphone-shortcut-ingest/iphone-shortcut.js
           node --check supabase/functions/iphone-shortcut-ingest/index.js
           node --check supabase/functions/iphone-shortcut-setup/index.js
+          node --check supabase/functions/tracking-status/tracking-status.js
+          node --check supabase/functions/tracking-status/index.js
           npm test
       - name: Stage static site
         run: |

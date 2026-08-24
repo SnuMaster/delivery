@@ -78,6 +78,9 @@ const elements = {
   detailMemo: $('detailMemo'),
   detailStatus: $('detailStatus'),
   detailOrigin: $('detailOrigin'),
+  detailLiveSummary: $('detailLiveSummary'),
+  detailLiveEvents: $('detailLiveEvents'),
+  detailLiveRefreshButton: $('detailLiveRefreshButton'),
   detailOfficialLink: $('detailOfficialLink'),
   detailLinkHint: $('detailLinkHint'),
   detailCopyButton: $('detailCopyButton'),
@@ -164,6 +167,12 @@ const iphoneShortcut = {
   connection: null,
   secret: '',
   loading: false,
+};
+
+// Delivery data is intentionally ephemeral. It stays in this tab only and is
+// discarded on sign-out, instead of becoming another cross-device data store.
+const liveTracking = {
+  byTracking: new Map(),
 };
 
 const gmailConnection = {
@@ -265,6 +274,7 @@ function setCacheOwner(userId) {
 function clearLocalAccountCache() {
   state.items = [];
   state.deletedItems = [];
+  liveTracking.byTracking.clear();
   try {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(TOMBSTONE_STORAGE_KEY);
@@ -414,6 +424,13 @@ async function initializeCloud() {
         if (event === 'SIGNED_OUT') {
           cloud.status = 'local';
           cloud.requiresLocalImportDecision = false;
+          cloud.recoveryMode = false;
+          // A session can end in a different tab as well as through the
+          // visible logout button. Do not leave the previous account's parcel
+          // cards or one-tab tracking results on this screen in that case.
+          clearLocalAccountCache();
+          closeDialog(elements.detailDialog);
+          closeDialog(elements.accountDialog);
         }
         if (cloud.user && event === 'SIGNED_IN') {
           const needsDecision = prepareCacheForUser(cloud.user);
@@ -722,7 +739,7 @@ function carrierOptions(selected = '', includeEmpty = true) {
 }
 
 function managementLabel(status) {
-  return status === 'received' ? '받음 (내 표시)' : '공식 조회 필요';
+  return status === 'received' ? '받음 (내 표시)' : '확인 전 (내 표시)';
 }
 
 function originLabel(origin, carrier) {
@@ -743,15 +760,56 @@ function filteredItems() {
 }
 
 function linkMarkup(item, className = 'official-link') {
-  if (!item.carrier) return '<span class="muted-note">택배사를 선택하면 공식 조회를 열 수 있어요.</span>';
+  if (!item.carrier) return '<span class="muted-note">택배사를 선택하면 공식 상세 이력을 열 수 있어요.</span>';
   const carrier = CARRIERS[item.carrier];
   const url = buildTrackingUrl(item.carrier, item.tracking);
   if (!url) return '<span class="muted-note">운송장 형식을 확인해 주세요.</span>';
   if (carrier.trackingMethod === 'post') {
-    return `<button class="${className}" type="button" data-official-track>공식 조회 ↗</button>`;
+    return `<button class="${className}" type="button" data-official-track>공식 상세 ↗</button>`;
   }
-  const label = '공식 조회 ↗';
+  const label = '공식 상세 ↗';
   return `<a class="${className}" data-official-track href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
+
+const LIVE_ERROR_LABELS = Object.freeze({
+  unauthorized: '로그인하면 앱 안에서 배송 상태를 확인할 수 있어요.',
+  provider_not_ready: '실시간 배송 연결을 준비 중이에요. 잠시 후 다시 시도해 주세요.',
+  tracking_unavailable: '이 계정에서는 실시간 배송 조회를 사용할 수 없어요.',
+  parcel_not_synced: '목록을 계정에 동기화한 뒤 다시 시도해 주세요.',
+  carrier_required: '택배사를 먼저 선택해 주세요.',
+  invalid_tracking: '운송장번호 또는 택배사를 다시 확인해 주세요.',
+  usage_exhausted: '이번 달 무료 조회 한도를 모두 사용했어요.',
+  refresh_limited: '같은 운송장은 하루 조회 횟수가 제한돼 있어요. 잠시 뒤 다시 확인해 주세요.',
+  temporary_failure: '상태를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.',
+  provider_unavailable: '택배사 배송 정보를 받아오지 못했어요. 잠시 후 다시 시도해 주세요.',
+});
+
+function liveEntryFor(item) {
+  return liveTracking.byTracking.get(item.tracking) || { phase: 'idle' };
+}
+
+function liveErrorLabel(code) {
+  return LIVE_ERROR_LABELS[code] || LIVE_ERROR_LABELS.provider_unavailable;
+}
+
+function liveStatusMarkup(item) {
+  const entry = liveEntryFor(item);
+  if (entry.phase === 'loading') return '<span class="live-pill loading"><span></span>상태 확인 중</span>';
+  if (entry.phase === 'ready') {
+    const event = entry.tracking.lastEvent;
+    const context = event?.location || event?.occurredAt || '';
+    return `<div class="live-status-card"><span class="live-pill ${entry.tracking.complete ? 'complete' : 'active'}"><span></span>${escapeHtml(entry.tracking.deliveryStatus)}</span>${context ? `<span class="live-context">${escapeHtml(context)}</span>` : ''}</div>`;
+  }
+  if (entry.phase === 'error') return '<span class="live-pill error"><span></span>상태 확인 실패</span>';
+  return '<span class="live-pending">실시간 상태 미확인</span>';
+}
+
+function liveActionMarkup(item) {
+  const entry = liveEntryFor(item);
+  if (!cloud.user) return '<button class="live-action" type="button" data-action="live-login">로그인 후 상태 확인</button>';
+  if (!item.carrier) return '<button class="live-action" type="button" data-action="edit">택배사 선택</button>';
+  if (entry.phase === 'loading') return '<button class="live-action" type="button" disabled>상태 확인 중…</button>';
+  return `<button class="live-action" type="button" data-action="refresh-live">${entry.phase === 'ready' ? '상태 새로고침' : '실시간 상태 확인'}</button>`;
 }
 
 function cardMarkup(item) {
@@ -767,16 +825,18 @@ function cardMarkup(item) {
       ${item.memo ? `<p class="parcel-memo">${escapeHtml(item.memo)}</p>` : ''}
     </div>
     <div class="parcel-status">
+      ${liveStatusMarkup(item)}
       <span class="status-pill ${statusClass}"><span></span>${managementLabel(item.managementStatus)}</span>
       <span class="date-label">수정 ${formatDate(item.updatedAt)}</span>
     </div>
     <div class="parcel-links">
+      ${liveActionMarkup(item)}
       ${linkMarkup(item)}
       <button class="text-button" type="button" data-action="copy" aria-label="${escapeHtml(item.tracking)} 복사">번호 복사</button>
     </div>
     <div class="parcel-actions" aria-label="택배 관리">
       <button class="icon-button" type="button" data-action="edit" aria-label="${escapeHtml(item.tracking)} 관리" title="관리">✎</button>
-      <button class="icon-button" type="button" data-action="toggle" aria-label="${escapeHtml(item.tracking)} ${item.managementStatus === 'received' ? '공식 조회 필요로' : '받음으로'} 표시" title="받음/공식 조회 필요 전환">✓</button>
+      <button class="icon-button" type="button" data-action="toggle" aria-label="${escapeHtml(item.tracking)} ${item.managementStatus === 'received' ? '확인 전으로' : '받음으로'} 표시" title="받음/확인 전 전환">✓</button>
       <button class="icon-button danger" type="button" data-action="delete" aria-label="${escapeHtml(item.tracking)} 삭제" title="삭제">×</button>
     </div>
   </article>`;
@@ -805,6 +865,7 @@ function render() {
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
   });
+  if (elements.detailDialog.open) renderDetailLiveStatus();
 }
 
 let toastTimer;
@@ -870,7 +931,7 @@ function addSingleTracking() {
   elements.trackingForm.reset();
   updateTrackingHint();
   elements.trackingInput.focus();
-  showToast(result.item.carrier ? '택배를 저장했어요.' : '택배를 저장했어요. 택배사를 선택하면 공식 조회도 열 수 있어요.');
+  showToast(result.item.carrier ? '택배를 저장했어요.' : '택배를 저장했어요. 택배사를 선택하면 실시간 상태를 확인할 수 있어요.');
 }
 
 function updateTrackingHint() {
@@ -1179,6 +1240,7 @@ function openDetail(item) {
   elements.detailOrigin.textContent = originLabel(item.carrierOrigin, item.carrier);
   updateDetailLink();
   openDialog(elements.detailDialog);
+  renderDetailLiveStatus();
 }
 
 function updateDetailLink() {
@@ -1189,14 +1251,158 @@ function updateDetailLink() {
   elements.detailOfficialLink.hidden = !hasCarrier;
   if (!hasCarrier) {
     elements.detailOfficialLink.removeAttribute('href');
-    elements.detailLinkHint.textContent = '택배사를 선택하면 해당 택배사의 공식 조회 페이지를 열 수 있어요.';
+    elements.detailLinkHint.textContent = '택배사를 선택하면 해당 택배사의 공식 상세 이력을 열 수 있어요.';
+    renderDetailLiveStatus();
     return;
   }
   elements.detailOfficialLink.href = url;
-  elements.detailOfficialLink.textContent = '공식 배송조회 열기 ↗';
+  elements.detailOfficialLink.textContent = '공식 상세 이력 열기 ↗';
   elements.detailLinkHint.textContent = usesPostTracking(carrier)
-    ? '이 택배사는 공식 조회 양식으로 번호를 안전하게 전달합니다. 공식 사이트에서 결과를 확인해 주세요.'
-    : '공식 사이트에서 배송 상태와 이력을 확인합니다. 이 앱은 배송 데이터를 자체 수집하지 않습니다.';
+    ? '이 택배사는 공식 양식으로 번호를 안전하게 전달합니다. 기사 연락처 등 전체 정보는 공식 사이트에서만 확인하세요.'
+    : '기사 연락처·수령 정보 등 전체 상세 이력은 공식 사이트에서만 확인하세요.';
+  renderDetailLiveStatus();
+}
+
+function detailItem() {
+  return state.items.find(candidate => candidate.id === elements.detailDialog.dataset.id) || null;
+}
+
+function detailEventMarkup(event) {
+  const parts = [event.status, event.location, event.occurredAt].filter(Boolean);
+  return `<li>${parts.map(escapeHtml).join('<span aria-hidden="true"> · </span>')}</li>`;
+}
+
+function renderDetailLiveStatus() {
+  const item = detailItem();
+  if (!item) {
+    elements.detailLiveSummary.textContent = '운송장을 찾지 못했어요.';
+    elements.detailLiveEvents.innerHTML = '';
+    elements.detailLiveRefreshButton.disabled = true;
+    return;
+  }
+
+  const selectedCarrier = elements.detailCarrier.value;
+  const savedCarrierMatches = selectedCarrier === item.carrier;
+  const entry = liveEntryFor(item);
+  elements.detailLiveRefreshButton.disabled = !cloud.user || !item.carrier || !savedCarrierMatches || entry.phase === 'loading';
+  elements.detailLiveRefreshButton.textContent = entry.phase === 'loading'
+    ? '상태 확인 중…'
+    : entry.phase === 'ready' ? '상태 새로고침' : '실시간 상태 확인';
+  elements.detailLiveEvents.innerHTML = '';
+
+  if (!cloud.user) {
+    elements.detailLiveSummary.textContent = '로그인하면 이 화면에서 최신 배송 상태를 직접 확인할 수 있어요.';
+    elements.detailLiveRefreshButton.textContent = '로그인 후 상태 확인';
+    elements.detailLiveRefreshButton.disabled = false;
+    return;
+  }
+  if (!selectedCarrier) {
+    elements.detailLiveSummary.textContent = '택배사를 선택하고 저장한 뒤 상태를 확인해 주세요.';
+    return;
+  }
+  if (!savedCarrierMatches) {
+    elements.detailLiveSummary.textContent = '바꾼 택배사를 먼저 저장한 뒤 상태를 확인해 주세요.';
+    return;
+  }
+  if (entry.phase === 'loading') {
+    elements.detailLiveSummary.textContent = '택배사에서 최신 배송 정보를 확인하고 있어요.';
+    return;
+  }
+  if (entry.phase === 'error') {
+    elements.detailLiveSummary.textContent = liveErrorLabel(entry.error);
+    return;
+  }
+  if (entry.phase !== 'ready') {
+    elements.detailLiveSummary.textContent = '버튼을 눌렀을 때만 상태를 조회해요. 자동 추적·알림은 하지 않아요.';
+    return;
+  }
+
+  const tracking = entry.tracking;
+  const last = tracking.lastEvent;
+  const lastText = last
+    ? [last.status, last.location, last.occurredAt].filter(Boolean).join(' · ')
+    : '아직 배송 이력이 없어요.';
+  elements.detailLiveSummary.innerHTML = `<strong>${escapeHtml(tracking.deliveryStatus)}</strong><span>${escapeHtml(lastText)}</span>${tracking.estimate ? `<small>예상: ${escapeHtml(tracking.estimate)}</small>` : ''}<small>확인 ${escapeHtml(formatDate(tracking.checkedAt))}</small>`;
+  if (tracking.events.length) {
+    elements.detailLiveEvents.innerHTML = `<ol class="live-event-list">${tracking.events.map(detailEventMarkup).join('')}</ol>`;
+  }
+}
+
+async function functionErrorCode(error) {
+  const response = error?.context;
+  if (!response?.clone) return '';
+  try {
+    const payload = await response.clone().json();
+    return String(payload?.error || '');
+  } catch {
+    return '';
+  }
+}
+
+async function refreshLiveTracking(item) {
+  if (!cloud.user) {
+    await openAccount();
+    showToast('로그인하면 앱 안에서 배송 상태를 확인할 수 있어요.');
+    return;
+  }
+  if (!item.carrier) {
+    openDetail(item);
+    showToast('택배사를 먼저 선택해 주세요.');
+    return;
+  }
+  if (liveEntryFor(item).phase === 'loading') return;
+
+  const client = await initializeCloud();
+  if (!client || !cloud.user || cloud.requiresLocalImportDecision) {
+    showToast('계정 동기화를 먼저 완료해 주세요.');
+    return;
+  }
+  const requestUserId = cloud.user.id;
+  const userIsCurrent = () => cloud.user?.id === requestUserId;
+  if (cloud.status !== 'synced' && !(await syncCloud())) {
+    showToast('목록을 계정에 동기화한 뒤 다시 시도해 주세요.');
+    return;
+  }
+  if (!userIsCurrent()) return;
+
+  const syncedItem = state.items.find(candidate => candidate.tracking === item.tracking);
+  if (!syncedItem) {
+    showToast('목록을 계정에서 찾지 못했어요. 동기화 후 다시 시도해 주세요.');
+    return;
+  }
+  const requestParcel = {
+    id: syncedItem.id,
+    tracking: syncedItem.tracking,
+    carrier: syncedItem.carrier,
+  };
+  const requestIsCurrent = () => userIsCurrent() && state.items.some(candidate => (
+    candidate.id === requestParcel.id
+    && candidate.tracking === requestParcel.tracking
+    && candidate.carrier === requestParcel.carrier
+  ));
+
+  liveTracking.byTracking.set(requestParcel.tracking, { phase: 'loading' });
+  render();
+  try {
+    const { data, error } = await client.functions.invoke('tracking-status', {
+      body: { parcelId: requestParcel.id },
+    });
+    if (!requestIsCurrent()) return;
+    const errorCode = String(data?.error || await functionErrorCode(error) || '');
+    if (!requestIsCurrent()) return;
+    if (error || data?.ok !== true || !data?.tracking) {
+      liveTracking.byTracking.set(requestParcel.tracking, { phase: 'error', error: errorCode || 'provider_unavailable' });
+      showToast(liveErrorLabel(errorCode || 'provider_unavailable'));
+      return;
+    }
+    liveTracking.byTracking.set(requestParcel.tracking, { phase: 'ready', tracking: data.tracking });
+  } catch {
+    if (!requestIsCurrent()) return;
+    liveTracking.byTracking.set(requestParcel.tracking, { phase: 'error', error: 'provider_unavailable' });
+    showToast(liveErrorLabel('provider_unavailable'));
+  } finally {
+    if (requestIsCurrent()) render();
+  }
 }
 
 function saveDetail(event) {
@@ -1204,12 +1410,14 @@ function saveDetail(event) {
   const item = state.items.find(candidate => candidate.id === elements.detailDialog.dataset.id);
   if (!item) return closeDialog(elements.detailDialog);
 
+  const previousCarrier = item.carrier;
   const newCarrier = elements.detailCarrier.value;
   item.carrier = CARRIERS[newCarrier] ? newCarrier : '';
   item.carrierOrigin = item.carrier === newCarrier ? 'manual' : 'manual';
   item.memo = elements.detailMemo.value.trim().slice(0, 240);
   item.managementStatus = elements.detailStatus.value === 'received' ? 'received' : 'needs-check';
   item.updatedAt = nextMutationTimestamp(item.updatedAt);
+  if (previousCarrier !== item.carrier) liveTracking.byTracking.delete(item.tracking);
   persist();
   render();
   closeDialog(elements.detailDialog);
@@ -1221,6 +1429,7 @@ function removeItem(id) {
   if (!item) return;
   if (!window.confirm(`${item.tracking}을(를) 목록에서 삭제할까요?`)) return;
   state.items = state.items.filter(candidate => candidate.id !== id);
+  liveTracking.byTracking.delete(item.tracking);
   markDeleted(item.tracking, item.updatedAt);
   persist();
   render();
@@ -1423,6 +1632,8 @@ elements.parcelList.addEventListener('click', event => {
   if (!item) return;
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (action === 'copy') return void copyTrackingNumber(item.tracking);
+  if (action === 'live-login') return void openAccount();
+  if (action === 'refresh-live') return void refreshLiveTracking(item);
   if (action === 'edit') return openDetail(item);
   if (action === 'delete') return removeItem(item.id);
   if (action === 'toggle') {
@@ -1430,7 +1641,7 @@ elements.parcelList.addEventListener('click', event => {
     item.updatedAt = nextMutationTimestamp(item.updatedAt);
     persist();
     render();
-    return showToast(item.managementStatus === 'received' ? '받음으로 표시했어요.' : '공식 조회 필요로 표시했어요.');
+    return showToast(item.managementStatus === 'received' ? '받음으로 표시했어요.' : '확인 전으로 표시했어요.');
   }
   const trackingLink = event.target.closest('[data-official-track]');
   if (trackingLink && usesPostTracking(item.carrier)) {
@@ -1470,6 +1681,11 @@ elements.detailForm.addEventListener('submit', saveDetail);
 elements.detailCarrier.addEventListener('change', updateDetailLink);
 elements.detailCopyButton.addEventListener('click', () => copyTrackingNumber(elements.detailTracking.value));
 elements.detailDeleteButton.addEventListener('click', () => removeItem(elements.detailDialog.dataset.id));
+elements.detailLiveRefreshButton.addEventListener('click', () => {
+  const item = detailItem();
+  if (!item) return;
+  void refreshLiveTracking(item);
+});
 elements.detailOfficialLink.addEventListener('click', event => {
   if (usesPostTracking(elements.detailCarrier.value)) {
     event.preventDefault();
@@ -1483,3 +1699,4 @@ renderGmailAvailability();
 void prepareGmailImport();
 updateCloudPresentation();
 void initializeCloud();
+

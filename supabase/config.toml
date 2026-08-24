@@ -8,3 +8,9 @@ verify_jwt = false
 # per-account random key in its request body and rate-limits it itself.
 verify_jwt = false
 
+[functions.tracking-status]
+# The function verifies the current user's session itself so CORS preflight can
+# reach the handler. It additionally limits use to the account that owns the
+# server-side SweetTracker key.
+verify_jwt = false
+

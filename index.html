@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101828">
-  <meta name="description" content="운송장번호를 브라우저에 안전하게 모으고 각 택배사의 공식 배송조회로 연결하는 개인용 택배 대시보드">
+  <meta name="description" content="운송장번호를 안전하게 모으고 로그인한 내 계정에서 최신 배송 상태를 직접 확인하는 개인용 택배 대시보드">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://esm.sh https://accounts.google.com; connect-src 'self' https://esm.sh https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://gmail.googleapis.com; frame-src https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self' https://www.ds3211.co.kr https://www.lotteglogis.com">
   <title>택배허브 — 내 운송장 한 화면에</title>
-  <link rel="stylesheet" href="styles.css?v=20260824-gmail-connect-1">
+  <link rel="stylesheet" href="styles.css?v=20260825-live-tracking-1">
 </head>
 <body>
   <div class="page-shell">
@@ -29,9 +29,9 @@
         <div class="hero-copy">
           <p class="eyebrow">PERSONAL PARCEL DASHBOARD</p>
           <h1 id="pageTitle">내 운송장을<br><span>한 화면에.</span></h1>
-          <p class="hero-description">운송장번호를 모아 두고, 정확한 택배사를 선택한 다음 각사의 <strong>공식 배송조회</strong>로 바로 이동하세요. 로그인하면 내 목록을 다른 기기와 동기화할 수 있어요.</p>
+          <p class="hero-description">운송장번호를 모아 두고, 정확한 택배사를 선택한 다음 <strong>상태 확인</strong>으로 최신 배송 정보를 보세요. 로그인하면 내 목록도 다른 기기와 동기화할 수 있어요.</p>
           <div class="truth-grid" aria-label="서비스 범위 안내">
-            <div><span class="truth-icon" aria-hidden="true">◎</span><p><strong>공식 정보 우선</strong><br>실제 배송 상태·이력은 택배사 공식 페이지에서 확인합니다.</p></div>
+            <div><span class="truth-icon" aria-hidden="true">◎</span><p><strong>필요할 때 최신 조회</strong><br>상태 확인을 누를 때만 배송 정보를 가져와요. 자동 추적·알림은 하지 않아요.</p></div>
             <div><span class="truth-icon" aria-hidden="true">⌁</span><p><strong>번호만으로 추정 안 함</strong><br>국내 숫자 운송장은 택배사별 형식이 겹쳐 직접 선택이 정확합니다.</p></div>
           </div>
         </div>
@@ -95,7 +95,7 @@
         <div class="stats" aria-label="택배 요약">
           <div class="stat-card"><span>전체</span><strong id="statAll">0</strong></div>
           <div class="stat-card warning"><span>택배사 선택</span><strong id="statNeedsCarrier">0</strong></div>
-          <div class="stat-card"><span>공식 조회 필요</span><strong id="statNeedsCheck">0</strong></div>
+          <div class="stat-card"><span>확인 전 (내 표시)</span><strong id="statNeedsCheck">0</strong></div>
           <div class="stat-card success"><span>받음 (내 표시)</span><strong id="statReceived">0</strong></div>
         </div>
 
@@ -103,7 +103,7 @@
           <div class="filter-group" id="filters" aria-label="택배 목록 필터">
             <button class="filter active" type="button" data-filter="all" aria-pressed="true">전체</button>
             <button class="filter" type="button" data-filter="needs-carrier" aria-pressed="false">택배사 선택</button>
-            <button class="filter" type="button" data-filter="needs-check" aria-pressed="false">공식 조회 필요</button>
+            <button class="filter" type="button" data-filter="needs-check" aria-pressed="false">확인 전</button>
             <button class="filter" type="button" data-filter="received" aria-pressed="false">받음</button>
           </div>
           <p>“받음”은 직접 표시하는 관리 상태입니다.</p>
@@ -178,7 +178,7 @@
         <div>
           <label for="detailStatus">내 관리 상태</label>
           <select id="detailStatus">
-            <option value="needs-check">공식 조회 필요</option>
+            <option value="needs-check">확인 전 (내 표시)</option>
             <option value="received">받음 (내 표시)</option>
           </select>
         </div>
@@ -187,10 +187,19 @@
           <input id="detailMemo" maxlength="240" placeholder="예: 선물 / 주문처">
         </div>
       </div>
+      <section class="live-status-panel" aria-labelledby="detailLiveTitle">
+        <div class="live-status-panel-header">
+          <div><strong id="detailLiveTitle">실시간 배송 상태</strong><p>내 계정에서 버튼을 눌렀을 때만 최신 정보를 확인해요.</p></div>
+          <button class="button button-secondary compact" id="detailLiveRefreshButton" type="button">실시간 상태 확인</button>
+        </div>
+        <div class="detail-live-summary" id="detailLiveSummary" aria-live="polite"></div>
+        <div id="detailLiveEvents"></div>
+        <p class="live-owner-note">실시간 조회는 API 키를 연결한 개인 계정에서만 제공돼요. 다른 계정은 아래 공식 상세 이력을 이용해 주세요.</p>
+      </section>
       <div class="official-panel">
-        <strong>실제 배송 정보</strong>
+        <strong>택배사 공식 상세 이력</strong>
         <p id="detailLinkHint"></p>
-        <a class="button button-secondary" id="detailOfficialLink" target="_blank" rel="noopener noreferrer">공식 배송조회 열기 ↗</a>
+        <a class="button button-secondary" id="detailOfficialLink" target="_blank" rel="noopener noreferrer">공식 상세 이력 열기 ↗</a>
       </div>
       <div class="modal-actions split">
         <button class="button button-danger" id="detailDeleteButton" type="button">이 운송장 삭제</button>
@@ -332,7 +341,7 @@
           </ol>
         </div>
       </details>
-      <p class="shortcut-guide-note">자동 등록된 번호도 택배사를 확정하지 않고 “공식 조회 필요”로 저장됩니다. 새 번호가 오면 택배허브에서 <strong>지금 동기화</strong>를 누르거나 페이지를 새로고침해 확인하세요.</p>
+      <p class="shortcut-guide-note">자동 등록된 번호도 택배사를 확정하지 않고 “확인 전”으로 저장됩니다. 새 번호가 오면 택배허브에서 <strong>지금 동기화</strong>를 누르거나 페이지를 새로고침해 확인하세요.</p>
 
       <p class="connection-notice" id="iphoneShortcutNotice" aria-live="polite"></p>
       <div class="modal-actions shortcut-actions">
@@ -346,6 +355,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <noscript><p class="noscript">택배허브를 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
-  <script type="module" src="app.js?v=20260825-gmail-live-3"></script>
+  <script type="module" src="app.js?v=20260825-live-tracking-1"></script>
 </body>
 </html>
+
