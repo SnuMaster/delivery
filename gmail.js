@@ -70,7 +70,9 @@ async function requestAccessToken(clientId) {
     });
     // This must stay inside a user-initiated click handler.  The token stays in
     // memory for this import only; we never request an offline refresh token.
-    tokenClient.requestAccessToken({ prompt: 'consent' });
+    // Google keeps prior consent for this user and Client ID. Leaving prompt
+    // unset avoids forcing a consent page on every user-initiated scan.
+    tokenClient.requestAccessToken();
   });
 }
 
@@ -103,28 +105,42 @@ function combineCandidates(groups) {
  * short-lived Google access token never leave the user's browser or local app
  * state; only candidate tracking numbers are returned to the dashboard.
  */
-export async function findGmailTrackingCandidates({ clientId, existingNumbers = [] }) {
+export async function findGmailTrackingCandidates({
+  clientId,
+  existingNumbers = [],
+  requestToken = requestAccessToken,
+  fetchGmail = gmailFetch,
+}) {
   if (!clientId) throw new Error('Gmail 연결 설정이 아직 완료되지 않았습니다.');
 
-  const accessToken = await requestAccessToken(clientId);
+  const accessToken = await requestToken(clientId);
   const query = encodeURIComponent(`newer_than:${SEARCH_DAYS}d (운송장 OR 송장 OR 배송 OR 택배)`);
-  const list = await gmailFetch(`messages?q=${query}&maxResults=${MESSAGE_LIMIT}`, accessToken);
+  const list = await fetchGmail(`messages?q=${query}&maxResults=${MESSAGE_LIMIT}`, accessToken);
   const messages = list.messages || [];
   const candidateGroups = [];
+  let messagesSkipped = 0;
 
   for (const summary of messages) {
-    const message = await gmailFetch(`messages/${encodeURIComponent(summary.id)}?format=full`, accessToken);
-    const subject = headerValue(message, 'subject');
-    const body = collectBodyText(message.payload).slice(0, 80_000);
-    const candidates = extractTrackingCandidates(`${subject}\n${body}`, existingNumbers).map(candidate => ({
-      ...candidate,
-      reason: `${candidate.reason} Gmail 메일에서 찾았습니다.`,
-    }));
-    candidateGroups.push(candidates);
+    try {
+      const message = await fetchGmail(`messages/${encodeURIComponent(summary.id)}?format=full`, accessToken);
+      const subject = headerValue(message, 'subject');
+      const body = collectBodyText(message.payload).slice(0, 80_000);
+      const candidates = extractTrackingCandidates(`${subject}\n${body}`, existingNumbers).map(candidate => ({
+        ...candidate,
+        reason: `${candidate.reason} Gmail 메일에서 찾았습니다.`,
+      }));
+      candidateGroups.push(candidates);
+    } catch {
+      // A single deleted or temporarily unreadable message must not discard
+      // candidates from the rest of this one-time, user-approved scan.
+      messagesSkipped += 1;
+    }
   }
 
   return {
     candidates: combineCandidates(candidateGroups),
     messagesScanned: messages.length,
+    messagesSkipped,
   };
 }
+
